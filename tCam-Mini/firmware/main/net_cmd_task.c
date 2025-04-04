@@ -53,20 +53,20 @@ static int client_sock = -1;
 static bool connected = false;
 
 // mDNS TXT records
-#define NUM_SERVICE_TXT_ITEMS 3
-static mdns_txt_item_t service_txt_data[NUM_SERVICE_TXT_ITEMS];
-static char* txt_item_keys[NUM_SERVICE_TXT_ITEMS] = {
-	"model",
-	"interface",
-	"version"
-};
+// #define NUM_SERVICE_TXT_ITEMS 3
+// static mdns_txt_item_t service_txt_data[NUM_SERVICE_TXT_ITEMS];
+// static char* txt_item_keys[NUM_SERVICE_TXT_ITEMS] = {
+	// "model",
+	// "interface",
+	// "version"
+// };
 
 
 
 //
 // Network CMD Forward Declarations for internal functions
 //
-static void net_cmd_start_mdns();
+// static void net_cmd_start_mdns();
 
 
 
@@ -78,14 +78,17 @@ void net_cmd_task()
 	char rx_buffer[256];
     char addr_str[16];
     int err;
-    int flag;
+    // int flag;
     int len;
-    int listen_sock;
-    struct sockaddr_in destAddr;
-    struct sockaddr_in sourceAddr;
-    uint32_t addrLen;
+    // int listen_sock;
+    // struct sockaddr_in destAddr;
+    // struct sockaddr_in sourceAddr;
+	struct sockaddr_in serverAddr;
+	int retry_count = 0;
+	int max_retry_count = 100;
+    // uint32_t addrLen;
     
-	ESP_LOGI(TAG, "Start task");
+	ESP_LOGI(TAG, "Start task as client socket");
 	
 	// Loop to setup socket, wait for connection, handle connection.  Terminates
 	// when client disconnects
@@ -96,53 +99,52 @@ void net_cmd_task()
 	}
 	
 	// Attempt to start the MDNS discovery service (we continue even if it fails)
-	net_cmd_start_mdns();
+	// net_cmd_start_mdns();
 	
 	// Config IPV4
-    destAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    destAddr.sin_family = AF_INET;
-    destAddr.sin_port = htons(CMD_PORT);
-    inet_ntoa_r(destAddr.sin_addr, addr_str, sizeof(addr_str) - 1);
+	serverAddr.sin_addr.s_addr = inet_addr("YOUR.AWS.SERVER.IP");  // Replace with actual IP
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(CMD_PORT);
+	inet_ntoa_r(serverAddr.sin_addr, addr_str, sizeof(addr_str) - 1);
         
-    // socket - bind - listen - accept
-    listen_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-    if (listen_sock < 0) {
-        ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
-        goto error;
-    }
-    ESP_LOGI(TAG, "Socket created");
-
-	flag = 1;
-  	setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag));
-    err = bind(listen_sock, (struct sockaddr *)&destAddr, sizeof(destAddr));
-    if (err != 0) {
-        ESP_LOGE(TAG, "Socket unable to bind: errno %d", errno);
-         goto error;
-    }
-    ESP_LOGI(TAG, "Socket bound");
-    
-	while (1) {
+	//Create socket and connect with aws
+	ESP_LOGI(TAG, "Connecting to server at %s:%d", addr_str, CMD_PORT);
+	while (1)
+	{
 		init_command_processor();
-			
-        err = listen(listen_sock, 1);
-        if (err != 0) {
-            ESP_LOGE(TAG, "Error occured during listen: errno %d", errno);
-            break;
+
+		client_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+		if (client_sock < 0) {
+			ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
+			vTaskDelay(pdMS_TO_TICKS(5000)); // Wait before retrying
+			retry_count++;
+			if (retry_count >= max_retry_count) {
+				retry_count = 0;
+				goto error;
+			}
+            continue;
+		}
+		retry_count = 0;
+	    ESP_LOGI(TAG, "Socket created");
+
+		// Connect to server
+        err = connect(client_sock, (struct sockaddr *)&serverAddr, sizeof(serverAddr));
+		if (err != 0) {
+            ESP_LOGE(TAG, "Socket unable to connect: errno %d", errno);
+            close(client_sock);
+            vTaskDelay(pdMS_TO_TICKS(5000)); // Wait before retrying
+			if (retry_count >= max_retry_count) {
+				retry_count = 0;
+				goto error;
+			}
+            continue;
         }
-        ESP_LOGI(TAG, "Socket listening");
-		
-        addrLen = sizeof(sourceAddr);
-        client_sock = accept(listen_sock, (struct sockaddr *)&sourceAddr, &addrLen);
-        if (client_sock < 0) {
-            ESP_LOGE(TAG, "Unable to accept connection: errno %d", errno);
-            break;
-        }
-        ESP_LOGI(TAG, "Socket accepted");
-        connected = 1;
-		
-        // Handle communication with client
-        while (1) {
-        	len = recv(client_sock, rx_buffer, sizeof(rx_buffer), MSG_DONTWAIT);
+		retry_count = 0 ;
+
+		ESP_LOGI(TAG, "Connected to server");
+
+		while (1) {
+        	len = recv(client_sock, rx_buffer, sizeof(rx_buffer), 0);
             // Error occured during receiving
             if (len < 0) {
             	if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
@@ -172,8 +174,8 @@ void net_cmd_task()
             	while (process_rx_data()) {}
             }
         }
-        
-        // Close this session
+
+		// Close this session
         connected = false;
         if (client_sock != -1) {
             ESP_LOGI(TAG, "Shutting down socket and restarting...");
@@ -212,7 +214,7 @@ int net_cmd_get_socket()
 //
 // Network CMD Internal functions
 //
-static void net_cmd_start_mdns()
+/*static void net_cmd_start_mdns()
 {
 	char model_type[2];     // Camera Model number "N"
 	char txt_if_type[9];    // "WiFi" or "Ethernet"
@@ -262,4 +264,4 @@ static void net_cmd_start_mdns()
 	}
 	
 	ESP_LOGI(TAG, "mDNS started");
-}
+}*/
