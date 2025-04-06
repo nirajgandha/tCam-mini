@@ -1169,7 +1169,7 @@ static bool json_add_metadata_object(cJSON* parent)
 	ctrl_get_if_mode(&brd_type, &if_type);
 	app_desc = esp_ota_get_app_description();
 	time_get(&te);
-	
+	cJSON_AddStringToObject(parent, "serialNumber", "4264");
 	// Create and add to the metadata object
 	cJSON_AddItemToObject(parent, "metadata", meta=cJSON_CreateObject());
 	

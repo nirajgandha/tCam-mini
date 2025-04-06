@@ -43,6 +43,7 @@
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
 #include <lwip/netdb.h>
+#include "aws_cmd_task.h"
 
 
 //
@@ -551,6 +552,8 @@ static void send_response(char* rsp, int rsp_length, bool ser_mode)
 	int err;
 	int len;
 	int sock;
+	char image_buffer[100] ="{\"serialNumber\": 4263 ,\"image\": \"abcdefghijklmnopqrstuvwxyz\"}";
+	int rsp_lengths = strlen(image_buffer);
 #ifdef LOG_SEND_TIMESTAMP
 	int64_t tb, te;
 	
@@ -564,19 +567,59 @@ static void send_response(char* rsp, int rsp_length, bool ser_mode)
 #endif
 		sif_send(rsp, rsp_length);
 	} else {
-		sock = net_cmd_get_socket();
-		
-		// Write our response to the socket
-    	byte_offset = 0;
-		while (byte_offset < rsp_length) {
-			len = rsp_length - byte_offset;
-			if (len > RSP_MAX_TX_PKT_LEN) len = RSP_MAX_TX_PKT_LEN;
-			err = send(sock, rsp + byte_offset, len, 0);
-			if (err < 0) {
-				ESP_LOGE(TAG, "Error in socket send: errno %d", errno);
-				break;
+		if (aws_cmd_connected())
+		{
+			esp_websocket_client_handle_t ws = aws_cmd_get_ws_handle();
+			if (ws && esp_websocket_client_is_connected(ws))
+			{
+				// Write our response to the socket
+				byte_offset = 0;
+				ESP_LOGI(TAG, "Start payload sending-------------------");
+				while (byte_offset < rsp_lengths)
+				{
+					len = rsp_lengths - byte_offset;
+					if (len > RSP_MAX_TX_PKT_LEN)
+					{
+						len = RSP_MAX_TX_PKT_LEN;
+					}
+					ESP_LOGI(TAG, "Sending data to aws");
+					int byte_sent = esp_websocket_client_send(ws, image_buffer + byte_offset, len, portMAX_DELAY);
+					if (byte_sent < 0)
+					{
+						ESP_LOGE(TAG, "Error in socket send: errno %d", errno);
+						break;
+					}
+					byte_offset += byte_sent;
+				}
+				ESP_LOGI(TAG, "Payload over-------------------");
 			}
-			byte_offset += err;
+			else
+			{
+				ESP_LOGW(TAG, "WebSocket not connected, cannot send");
+				goto data_to_local;
+			}
+		}
+		else
+		{
+		data_to_local:
+			ESP_LOGI(TAG, "Sending data to local socket");
+			sock = net_cmd_get_socket();
+
+			// Write our response to the socket
+			byte_offset = 0;
+			while (byte_offset < rsp_length)
+			{
+				len = rsp_length - byte_offset;
+				if (len > RSP_MAX_TX_PKT_LEN)
+					len = RSP_MAX_TX_PKT_LEN;
+				err = send(sock, rsp + byte_offset, len, 0);
+				if (err < 0)
+				{
+					ESP_LOGE(TAG, "Error in socket send: errno %d", errno);
+					break;
+				}
+				byte_offset += err;
+			}
 		}
 	}
 	
