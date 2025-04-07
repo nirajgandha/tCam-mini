@@ -64,10 +64,11 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
 		break;
 
 	case WEBSOCKET_EVENT_DATA:
-		push_rx_data((char *)data->data_ptr, data->data_len);
-		while (process_rx_data())
-		{
-		}
+		// ESP_LOGE(TAG,"WEBSOCKET_EVENT_DATA_RECEIVED: %s", );
+		// push_rx_data((char *)data->data_ptr, data->data_len);
+		// while (process_rx_data())
+		// {
+		// }
 		break;
 
 	case WEBSOCKET_EVENT_ERROR:
@@ -95,7 +96,7 @@ void aws_cmd_task()
 
 	// Init WebSocket
 	esp_websocket_client_config_t websocket_cfg = {
-		.host = "50.19.252.112",
+		.host = "192.168.2.187",
 		.port = 8390,
 		.path = "/mlai/streaming/ws/stream",
 		.transport = WEBSOCKET_TRANSPORT_OVER_TCP, // Use TCP (ws://)
@@ -108,7 +109,7 @@ void aws_cmd_task()
 	};
 
 	ws_client = esp_websocket_client_init(&websocket_cfg);
-	// esp_websocket_register_events(ws_client, WEBSOCKET_EVENT_ANY, websocket_event_handler, NULL);
+	esp_websocket_register_events(ws_client, WEBSOCKET_EVENT_ANY, websocket_event_handler, NULL);
 
     esp_err_t aws_connection_start_code = -1;
     while (1)
@@ -121,7 +122,6 @@ void aws_cmd_task()
        }
        else
        {
-            connected = true;
             ESP_LOGI(TAG, "Connected to aws socket");
             break;
        }

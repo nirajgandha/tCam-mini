@@ -47,7 +47,7 @@
 #define RSP_TASK_EVAL_FAST_MSEC 10
 
 // Maximum send packet size (less than a MTU)
-#define RSP_MAX_TX_PKT_LEN 1280
+#define RSP_MAX_TX_PKT_LEN 1500
 
 // Maximum cam_info string length
 #define RSP_MAX_CAM_INFO_LEN 128
