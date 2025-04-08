@@ -187,11 +187,11 @@ uint32_t json_get_image_file_string(char* json_image_text, lep_buffer_t* lep_buf
 	if (success) {
 		success = json_add_lep_image_object(root, lep_buffer);
 		if (success) {
-			success = json_add_lep_telem_object(root, lep_buffer);
-			if (!success) {
-				// Free lep_image that was already allocated
-				json_free_lep_base64_image();
-			}
+			// success = json_add_lep_telem_object(root, lep_buffer);
+			// if (!success) {
+			// 	// Free lep_image that was already allocated
+			// 	json_free_lep_base64_image();
+			// }
 		}
 	}
 	
