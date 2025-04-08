@@ -544,31 +544,38 @@ static int process_image(int n)
 
 void send_data_to_aws_socket(char* rsp, int rsp_length)
 {
-	int byte_offset;
+	// int byte_offset;
 	int len;
 	if (aws_cmd_connected())
 	{
 		esp_websocket_client_handle_t ws = aws_cmd_get_ws_handle();
 		if (ws && esp_websocket_client_is_connected(ws))
 		{
+			len = rsp_length;
 			// Write our response to the socket
-			byte_offset = 0;
+			// byte_offset = 0;
 			ESP_LOGI(TAG, "Payload start -------------------");
-			while (byte_offset < rsp_length)
+			// while (byte_offset < rsp_length)
+			// {
+			// 	len = rsp_length - byte_offset;
+			// 	if (len > RSP_MAX_TX_PKT_LEN)
+			// 	{
+			// 		len = RSP_MAX_TX_PKT_LEN;
+			// 	}
+			// 	ESP_LOGI(TAG, "Sending data to aws");
+			// 	int byte_sent = esp_websocket_client_send_text(ws, rsp + byte_offset, len, portMAX_DELAY);
+			// 	if (byte_sent < 0)
+			// 	{
+			// 		ESP_LOGE(TAG, "Error in socket send: errno %d", errno);
+			// 		break;
+			// 	}
+			// 	byte_offset += byte_sent;
+			// }
+			ESP_LOGI(TAG, "Sending data to aws");
+			int byte_sent = esp_websocket_client_send_text(ws, rsp, len, portMAX_DELAY);
+			if (byte_sent < 0)
 			{
-				len = rsp_length - byte_offset;
-				if (len > RSP_MAX_TX_PKT_LEN)
-				{
-					len = RSP_MAX_TX_PKT_LEN;
-				}
-				ESP_LOGI(TAG, "Sending data to aws");
-				int byte_sent = esp_websocket_client_send_text(ws, rsp + byte_offset, len, portMAX_DELAY);
-				if (byte_sent < 0)
-				{
-					ESP_LOGE(TAG, "Error in socket send: errno %d", errno);
-					break;
-				}
-				byte_offset += byte_sent;
+				ESP_LOGE(TAG, "Error in socket send: errno %d", errno);
 			}
 			ESP_LOGI(TAG, "Payload over -------------------");
 		}
