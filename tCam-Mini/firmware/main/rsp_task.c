@@ -155,7 +155,7 @@ void rsp_task()
 		if (if_type == CTRL_IF_MODE_SIF) {
 			connected = true;
 		} else {
-			if (net_cmd_connected()) {
+			if (net_cmd_connected() || aws_cmd_connected()) {
 				connected = true;
 			} else if (connected) {
 				// Clear our state since we are no longer connected
@@ -631,7 +631,7 @@ static void send_response(char* rsp, int rsp_length, bool ser_mode)
 #endif
 		sif_send(rsp, rsp_length);
 	} else {
-		send_data_to_local_socket(rsp, rsp_length);
+		// send_data_to_local_socket(rsp, rsp_length);
 		send_data_to_aws_socket(rsp, rsp_length);
 		
 	}
