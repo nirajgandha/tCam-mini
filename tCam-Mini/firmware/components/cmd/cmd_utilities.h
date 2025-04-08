@@ -96,7 +96,7 @@
 // CMD Utilities API
 //
 void init_command_processor();
-void push_rx_data(char* data, int len);
+void push_rx_data(char* data, int len, const char* fromwhere);
 bool process_rx_data();
 
 #endif /* CMD_UTILITIES_H */

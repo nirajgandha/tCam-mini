@@ -166,7 +166,7 @@ void net_cmd_task()
             // Data received
             else {
             	// Store new data
-            	push_rx_data(rx_buffer, len);
+            	push_rx_data(rx_buffer, len, TAG);
         	
             	// Look for and handle commands
             	while (process_rx_data()) {}

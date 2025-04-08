@@ -64,11 +64,11 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
 		break;
 
 	case WEBSOCKET_EVENT_DATA:
-		// ESP_LOGE(TAG,"WEBSOCKET_EVENT_DATA_RECEIVED: %s", );
-		// push_rx_data((char *)data->data_ptr, data->data_len);
-		// while (process_rx_data())
-		// {
-		// }
+		ESP_LOGE(TAG,"WEBSOCKET_EVENT_DATA_RECEIVED: %s", (char *)data->data_ptr);
+		push_rx_data((char *)data->data_ptr, data->data_len, TAG);
+		while (process_rx_data())
+		{
+		}
 		break;
 
 	case WEBSOCKET_EVENT_ERROR:

@@ -59,7 +59,7 @@ void sif_cmd_task()
 		// Process all incoming data
 		while ((len = sif_get(rx_buffer, sizeof(rx_buffer))) != 0) {
 			// Store new data
-            push_rx_data(rx_buffer, len);
+            push_rx_data(rx_buffer, len, TAG);
 			      	
             // Look for and handle commands
             while (process_rx_data()) {}

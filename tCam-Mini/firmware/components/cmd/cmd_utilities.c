@@ -95,8 +95,9 @@ void init_command_processor()
 /**
  * Push received data into our circular buffer
  */
-void push_rx_data(char* data, int len)
+void push_rx_data(char* data, int len, const char* fromwhere)
 {	
+	ESP_LOGI(TAG, " %s sent Command: %s", fromwhere, data);
 	// Push the received data into the circular buffer
 	while (len-- > 0) {
 		rx_circular_buffer[rx_circular_push_index] = *data++;
