@@ -575,7 +575,7 @@ void send_data_to_aws_socket(char* rsp, int rsp_length)
 			int byte_sent = esp_websocket_client_send_text(ws, rsp, len, portMAX_DELAY);
 			if (byte_sent < 0)
 			{
-				ESP_LOGE(TAG, "Error in socket send: errno %d", errno);
+				ESP_LOGE(TAG, "Error in aws socket send: errno %d", errno);
 			}
 			ESP_LOGI(TAG, "Payload over -------------------");
 		}
@@ -588,6 +588,11 @@ void send_data_to_aws_socket(char* rsp, int rsp_length)
 
 void send_data_to_local_socket(char* rsp, int rsp_length)
 {
+	if (!net_cmd_connected())
+	{
+		return;
+	}
+	
 	int byte_offset;
 	int err;
 	int len;
@@ -631,7 +636,8 @@ static void send_response(char* rsp, int rsp_length, bool ser_mode)
 #endif
 		sif_send(rsp, rsp_length);
 	} else {
-		// send_data_to_local_socket(rsp, rsp_length);
+		ESP_LOGI(TAG, "Response length: %d", rsp_length);
+		send_data_to_local_socket(rsp, rsp_length);
 		send_data_to_aws_socket(rsp, rsp_length);
 		
 	}

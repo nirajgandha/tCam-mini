@@ -34,6 +34,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_transport_ws.h"
 
 //
 // AWS Network CMD Task variables
@@ -64,9 +65,10 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
 		break;
 
 	case WEBSOCKET_EVENT_DATA:
-		if ((char *)data->op_code == 0x1)
+		ESP_LOGE(TAG,"WEBSOCKET_EVENT_DATA_RECEIVED: %s with op_code: %x", (char *)data->data_ptr, data->op_code);
+
+		if (data->op_code == WS_TRANSPORT_OPCODES_TEXT || data->op_code == WS_TRANSPORT_OPCODES_BINARY)
 		{
-			ESP_LOGE(TAG,"WEBSOCKET_EVENT_DATA_RECEIVED: %s", (char *)data->data_ptr);
 			push_rx_data((char *)data->data_ptr, data->data_len, TAG);
 			while (process_rx_data()){}
 		}
@@ -96,9 +98,9 @@ void aws_cmd_task()
 
 	// Init WebSocket
 	esp_websocket_client_config_t websocket_cfg = {
-		.host = "192.168.2.187",
+		.host = "50.19.252.112",
 		.port = 8390,
-		.path = "/mlai/streaming/ws/stream",
+		.path = "/mlai/streaming/ws/stream_thermal/4263",
 		.transport = WEBSOCKET_TRANSPORT_OVER_TCP, // Use TCP (ws://)
 		.disable_auto_reconnect = false,		   // Enable automatic reconnect
 		.ping_interval_sec = 30,				   // Send pings every 30 seconds

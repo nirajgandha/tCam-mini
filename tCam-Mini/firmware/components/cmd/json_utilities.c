@@ -205,7 +205,7 @@ uint32_t json_get_image_file_string(char* json_image_text, lep_buffer_t* lep_buf
 		
 		// Free the base-64 converted image strings
 		json_free_lep_base64_image();
-		json_free_lep_base64_telem();
+		// json_free_lep_base64_telem();
 	} else {
 		ESP_LOGE(TAG, "failed to create json image text");
 	}

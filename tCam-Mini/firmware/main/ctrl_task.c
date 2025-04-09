@@ -28,6 +28,7 @@
 #include <stdbool.h>
 #include "ctrl_task.h"
 #include "net_cmd_task.h"
+#include "aws_cmd_task.h"
 #include "rsp_task.h"
 #include "esp_system.h"
 #include "esp_log.h"
@@ -324,7 +325,7 @@ static void ctrl_eval_sm()
 				ctrl_set_state(CTRL_ST_RESET_ALERT);
 			} else if ((net_info->flags & NET_INFO_FLAG_CONNECTED) != NET_INFO_FLAG_CONNECTED) {
 				ctrl_set_state(CTRL_ST_NET_NOT_CONNECTED);
-			} else if (net_cmd_connected()) {
+			} else if (net_cmd_connected() || aws_cmd_connected()) {
 				ctrl_set_state(CTRL_ST_CLIENT_CONNECTED);
 			}
 			break;
@@ -333,7 +334,7 @@ static void ctrl_eval_sm()
 			if (ctrl_if_mode != CTRL_IF_MODE_SIF) {
 				if (btn_long_press) {
 					ctrl_set_state(CTRL_ST_RESET_ALERT);
-				} else if (!net_cmd_connected()) {
+				} else if (!(net_cmd_connected() || aws_cmd_connected())) {
 					// Goto network not connected in case this was why we lost our client.
 					// If it is connected then we'll quickly go to network connected.
 					ctrl_set_state(CTRL_ST_NET_NOT_CONNECTED);
