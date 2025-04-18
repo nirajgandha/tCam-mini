@@ -1,5 +1,5 @@
 /*
- * AWS Command Task
+ * Send Image Command Task
  *
  *
  * Created by Niraj Gandha
@@ -20,20 +20,17 @@
  * along with tCam.  If not, see <https://www.gnu.org/licenses/>.
  *
  */
-#ifndef AWS_CMD_TASK_H
-#define AWS_CMD_TASK_H
+#ifndef SEND_IMG_CMD_TASK_H
+#define SEND_IMG_CMD_TASK_H
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "esp_websocket_client.h"
 
 
 
 //
-// AWS Network CMD Task API
+// Send Image CMD Task API
 //
-void aws_cmd_task();
-bool aws_cmd_connected();
-esp_websocket_client_handle_t aws_cmd_get_ws_handle();
+void send_img_interval_task();
 
-#endif /* AWS_CMD_TASK_H */
+#endif /* SEND_IMG_CMD_TASK_H */

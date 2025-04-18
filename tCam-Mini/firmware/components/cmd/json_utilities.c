@@ -104,7 +104,7 @@ static unsigned char* base64_cci_reg_data;
 
 static uint16_t* cci_buf;           // Used to hold Lepton CCI data from cmd or for rsp
 
-
+bool process_image = false;
 
 //
 // JSON Utilities Forward Declarations for internal functions
@@ -182,18 +182,14 @@ uint32_t json_get_image_file_string(char* json_image_text, lep_buffer_t* lep_buf
 	root = cJSON_CreateObject();
 	if (root == NULL) return 0;
 	
-	// Construct the json object
-	success = json_add_metadata_object(root);
-	if (success) {
-		success = json_add_lep_image_object(root, lep_buffer);
-		if (success) {
-			// success = json_add_lep_telem_object(root, lep_buffer);
-			// if (!success) {
-			// 	// Free lep_image that was already allocated
-			// 	json_free_lep_base64_image();
-			// }
-		}
+	cJSON_AddStringToObject(root, "serialNumber", "4264");
+	cJSON_AddBoolToObject(root, "process_image", process_image);
+	if (process_image)
+	{
+		process_image = false;
 	}
+	
+	success = json_add_lep_image_object(root, lep_buffer);
 	
 	// Tightly print the object to our buffer
 	if (success) {
@@ -1002,7 +998,10 @@ const char* json_get_cmd_name(int cmd)
 	return "Unknown";
 }
 
-
+void set_process_image(bool is_process_image)
+{
+	process_image = is_process_image;
+}
 
 //
 // JSON Utilities internal functions
@@ -1169,7 +1168,7 @@ static bool json_add_metadata_object(cJSON* parent)
 	ctrl_get_if_mode(&brd_type, &if_type);
 	app_desc = esp_ota_get_app_description();
 	time_get(&te);
-	cJSON_AddStringToObject(parent, "serialNumber", "4263");
+	cJSON_AddStringToObject(parent, "serialNumber", "4264");
 	// Create and add to the metadata object
 	cJSON_AddItemToObject(parent, "metadata", meta=cJSON_CreateObject());
 	

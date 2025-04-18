@@ -66,4 +66,5 @@ bool json_parse_fw_upd_request(cJSON* cmd_args, uint32_t* len, char* ver);
 bool json_parse_fw_segment(cJSON* cmd_args, uint32_t* start, uint32_t* len, uint8_t* buf);
 void json_free_cmd(cJSON* cmd);
 const char* json_get_cmd_name(int cmd);
+void set_process_image(bool is_process_image);
 #endif /* JSON_UTILITIES_H */

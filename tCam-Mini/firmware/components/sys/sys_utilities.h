@@ -92,6 +92,7 @@ extern TaskHandle_t task_handle_ctrl;
 extern TaskHandle_t task_handle_lep;
 extern TaskHandle_t task_handle_rsp;
 extern TaskHandle_t task_handle_aws;
+extern TaskHandle_t task_handle_send_img_interval;
 #ifdef INCLUDE_SYS_MON
 extern TaskHandle_t task_handle_mon;
 #endif

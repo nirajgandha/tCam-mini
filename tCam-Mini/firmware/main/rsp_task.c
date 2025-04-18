@@ -44,6 +44,7 @@
 #include "lwip/sys.h"
 #include <lwip/netdb.h>
 #include "aws_cmd_task.h"
+#include "send_img_interval_task.h"
 
 
 //
@@ -368,6 +369,7 @@ static void handle_notifications()
 			
 			// Stop any on-going streaming
 			stream_on = false;
+			set_process_image(true);
 		}
 		
 		if (Notification(notification_value, RSP_NOTIFY_CMD_STREAM_ON_MASK)) {
@@ -553,31 +555,12 @@ void send_data_to_aws_socket(char* rsp, int rsp_length)
 		{
 			len = rsp_length;
 			// Write our response to the socket
-			// byte_offset = 0;
-			ESP_LOGI(TAG, "Payload start -------------------");
-			// while (byte_offset < rsp_length)
-			// {
-			// 	len = rsp_length - byte_offset;
-			// 	if (len > RSP_MAX_TX_PKT_LEN)
-			// 	{
-			// 		len = RSP_MAX_TX_PKT_LEN;
-			// 	}
-			// 	ESP_LOGI(TAG, "Sending data to aws");
-			// 	int byte_sent = esp_websocket_client_send_text(ws, rsp + byte_offset, len, portMAX_DELAY);
-			// 	if (byte_sent < 0)
-			// 	{
-			// 		ESP_LOGE(TAG, "Error in socket send: errno %d", errno);
-			// 		break;
-			// 	}
-			// 	byte_offset += byte_sent;
-			// }
 			ESP_LOGI(TAG, "Sending data to aws");
 			int byte_sent = esp_websocket_client_send_text(ws, rsp, len, portMAX_DELAY);
 			if (byte_sent < 0)
 			{
 				ESP_LOGE(TAG, "Error in aws socket send: errno %d", errno);
 			}
-			ESP_LOGI(TAG, "Payload over -------------------");
 		}
 		else
 		{
@@ -820,4 +803,9 @@ static void send_get_fw()
 	}
 	
 	xSemaphoreGive(sys_cmd_response_buffer.mutex);
+}
+
+bool is_stream_on()
+{
+	return stream_on;
 }

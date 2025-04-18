@@ -63,6 +63,7 @@ TaskHandle_t task_handle_ctrl;
 TaskHandle_t task_handle_lep;
 TaskHandle_t task_handle_rsp;
 TaskHandle_t task_handle_aws;
+TaskHandle_t task_handle_send_img_interval;
 #ifdef INCLUDE_SYS_MON
 TaskHandle_t task_handle_mon;
 #endif

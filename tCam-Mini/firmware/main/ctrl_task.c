@@ -39,6 +39,7 @@
 #include "ps_utilities.h"
 #include "system_config.h"
 #include "sys_utilities.h"
+#include "send_img_interval_task.h"
 
 
 
