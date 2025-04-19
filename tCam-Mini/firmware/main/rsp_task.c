@@ -364,11 +364,10 @@ static void handle_notifications()
 		// Handle cmd_task notifications
 		//
 		if (Notification(notification_value, RSP_NOTIFY_CMD_GET_IMG_MASK)) {
-			// Note to process the next received image
-			image_pending = true;
-			
-			// Stop any on-going streaming
-			stream_on = false;
+			if (!stream_on)
+			{
+				image_pending = true;
+			}
 			set_process_image(true);
 		}
 		

@@ -31,6 +31,7 @@
 #include "cmd_utilities.h"
 #include "json_utilities.h"
 #include "esp_log.h"
+#include "sif_utilities.h"
 
 //
 // AWS Network CMD Task variables
@@ -44,31 +45,60 @@ void send_img_interval_task()
 {
 
 	
-	ESP_LOGI(TAG, "Start task to send image at interval(mSec): ");
-	long interval_in_msec = 60 * 1000;
+	long interval_in_msec_send_image = 30 * 1000;
+	ESP_LOGI(TAG, "Start task to trigger cmd on tx/rx port at interval(mSec): %ld", interval_in_msec_send_image);
 
-	const char *json_payload = "{\"cmd\":\"get_image\"}";
     char message[100];
-    snprintf(message, sizeof(message), "%c{\"cmd\":\"%s\"}%c", CMD_JSON_STRING_START, CMD_GET_IMAGE_S, CMD_JSON_STRING_STOP);
+	bool toggle1 = false;
+	bool toggle2 = false;
 
 	while (1)
 	{
+		bool should_send = false;
 		if (!(aws_cmd_connected()))
 		{
 			vTaskDelay(pdMS_TO_TICKS(1000));
 			continue;
 		}
-		if (is_stream_on())
+		memset(message, 0, sizeof(message));
+		if (!is_stream_on() && !toggle1)
 		{
-			ESP_LOGI(TAG, "Stream on so setting set_process_image: true");
-			set_process_image(true);
-		} else {
-			ESP_LOGI(TAG, "Stream off so setting sending cmd get_image");
-			push_rx_data(message, sizeof(message), TAG);
-			process_rx_data();
-			
+			toggle1 = true;
+			ESP_LOGW(TAG, "stream off so sending get_image cmd to sif");
+			snprintf(message, sizeof(message), "%c{\"cmd\":\"%s\"}%c", CMD_JSON_STRING_START, CMD_GET_IMAGE_S, CMD_JSON_STRING_STOP);
+			should_send = true;
+			goto send_message;
 		}
+		if (!is_stream_on() && toggle1)
+		{
+			toggle1 = false;
+			ESP_LOGW(TAG, "stream off so sending stream_on cmd to sif");
+			snprintf(message, sizeof(message), "%c{\"cmd\":\"%s\", \"args\":{\"delay_msec\":0,\"num_frames\":0}}%c", CMD_JSON_STRING_START, CMD_STREAM_ON_S, CMD_JSON_STRING_STOP);
+			should_send = true;
+			goto send_message;
+		}
+		if (is_stream_on() && !toggle2)
+		{
+			toggle2 = true;
+			ESP_LOGW(TAG, "stream on so sending get_image cmd to sif");
+			snprintf(message, sizeof(message), "%c{\"cmd\":\"%s\"}%c", CMD_JSON_STRING_START, CMD_GET_IMAGE_S, CMD_JSON_STRING_STOP);
+			should_send = true;
+			goto send_message;
+		}
+		if (is_stream_on() && toggle2)
+		{
+			toggle2 = false;
+			ESP_LOGW(TAG, "stream on so sending stream_off cmd to sif");
+			snprintf(message, sizeof(message), "%c{\"cmd\":\"%s\"}%c", CMD_JSON_STRING_START, CMD_STREAM_OFF_S, CMD_JSON_STRING_STOP);
+			should_send = true;
+			goto send_message;
+		}
+		send_message:
+		if (should_send)
+		{
+			sif_send(message, sizeof(message));
+		}
+		vTaskDelay(pdMS_TO_TICKS(interval_in_msec_send_image));
 		
-		vTaskDelay(pdMS_TO_TICKS(interval_in_msec));
 	}
 }

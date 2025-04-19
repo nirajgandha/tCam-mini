@@ -90,8 +90,6 @@ static int ctrl_if_mode;
 static int ctrl_pin_btn;
 static int ctrl_pin_r_led;
 static int ctrl_pin_g_led;
-static int ctrl_pin_sif_rx;
-static int ctrl_pin_sif_tx;
 
 // State
 static int ctrl_state;
@@ -115,8 +113,6 @@ static void ctrl_set_state(int new_st);
 static void ctrl_eval_led_sm();
 static void ctrl_set_led_state(int new_st);
 static void ctrl_handle_notifications();
-static void ctrl_tx_pin();
-static void ctrl_rx_pin();
 
 
 //
@@ -129,8 +125,6 @@ void ctrl_task()
 	ctrl_task_init();
 	
 	while (1) {
-		ctrl_tx_pin();
-		ctrl_rx_pin();
 		vTaskDelay(pdMS_TO_TICKS(CTRL_EVAL_MSEC));
 		ctrl_handle_notifications();
 		ctrl_eval_led_sm();
@@ -209,8 +203,6 @@ static void ctrl_task_init()
 		ctrl_pin_btn = BRD_W_BTN_IO;
 		ctrl_pin_r_led = BRD_W_RED_LED_IO;
 		ctrl_pin_g_led = BRD_W_GREEN_LED_IO;
-		ctrl_pin_sif_rx = BRD_W_SIF_RX_IO;
-		ctrl_pin_sif_tx = BRD_W_SIF_TX_IO;
 	}
 	
 	// Setup the GPIO
@@ -225,14 +217,6 @@ static void ctrl_task_init()
 	gpio_reset_pin((gpio_num_t) ctrl_pin_g_led);
 	gpio_set_direction((gpio_num_t) ctrl_pin_g_led, GPIO_MODE_OUTPUT);
 	gpio_set_drive_capability((gpio_num_t) ctrl_pin_g_led, GPIO_DRIVE_CAP_3);
-
-	gpio_reset_pin((gpio_num_t) ctrl_pin_sif_rx);
-	gpio_set_direction((gpio_num_t) ctrl_pin_sif_rx, GPIO_MODE_INPUT);
-	gpio_pullup_en((gpio_num_t) ctrl_pin_sif_rx);
-	
-	gpio_reset_pin((gpio_num_t) ctrl_pin_sif_tx);
-	gpio_set_direction((gpio_num_t) ctrl_pin_sif_tx, GPIO_MODE_INPUT);
-	gpio_pullup_en((gpio_num_t) ctrl_pin_sif_tx);
 	
 	// Initialize state
 	ctrl_set_state(CTRL_ST_STARTUP);
@@ -282,43 +266,6 @@ static void ctrl_debounce_button(bool* short_p, bool* long_p)
 	if (btn_released && (btn_timer != 0)) {
 		// Short press detected
 		*short_p = true;
-		send_image_without_stream();
-	}
-}
-
-static void ctrl_tx_pin()
-{
-	// Get current button value
-	bool cur_tx_gpio_on = gpio_get_level(ctrl_pin_sif_tx) == 0;
-	if (cur_tx_gpio_on)
-	{
-		if(aws_cmd_connected() && !is_stream_on())
-		{
-			start_stream_to_aws();
-		}
-	} else {
-		if (is_stream_on())
-		{
-			stop_stream_to_aws();
-		}
-	}
-}
-
-static void ctrl_rx_pin()
-{
-	// Get current button value
-	bool cur_rx_gpio_on = gpio_get_level(ctrl_pin_sif_rx) == 0;
-	if (cur_rx_gpio_on)
-	{
-		if(aws_cmd_connected() && !is_stream_on())
-		{
-			send_image_without_stream();
-		}
-	} else {
-		if (is_stream_on())
-		{
-			send_image_in_stream();
-		}
 	}
 }
 
