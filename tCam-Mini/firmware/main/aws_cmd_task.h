@@ -35,5 +35,9 @@
 void aws_cmd_task();
 bool aws_cmd_connected();
 esp_websocket_client_handle_t aws_cmd_get_ws_handle();
+void start_stream_to_aws();
+void stop_stream_to_aws();
+void send_image_without_stream();
+void send_image_in_stream();
 
 #endif /* AWS_CMD_TASK_H */

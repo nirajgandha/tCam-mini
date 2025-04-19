@@ -49,7 +49,6 @@ void send_img_interval_task()
 
 	const char *json_payload = "{\"cmd\":\"get_image\"}";
     char message[100];
-
     snprintf(message, sizeof(message), "%c{\"cmd\":\"%s\"}%c", CMD_JSON_STRING_START, CMD_GET_IMAGE_S, CMD_JSON_STRING_STOP);
 
 	while (1)

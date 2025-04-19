@@ -35,6 +35,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_transport_ws.h"
+#include "json_utilities.h"
 
 //
 // AWS Network CMD Task variables
@@ -150,4 +151,32 @@ bool aws_cmd_connected()
 esp_websocket_client_handle_t aws_cmd_get_ws_handle()
 {
 	return ws_client;
+}
+
+void start_stream_to_aws()
+{
+	char message[100];
+    snprintf(message, sizeof(message), "%c{\"cmd\":\"%s\", \"args\":{\"delay_msec\":0,\"num_frames\":0}}%c", CMD_JSON_STRING_START, CMD_STREAM_ON_S, CMD_JSON_STRING_STOP);
+	push_rx_data(message, sizeof(message), TAG);
+	process_rx_data();
+}
+void stop_stream_to_aws()
+{
+	char message[100];
+    snprintf(message, sizeof(message), "%c{\"cmd\":\"%s\"}%c", CMD_JSON_STRING_START, CMD_STREAM_OFF_S, CMD_JSON_STRING_STOP);
+	push_rx_data(message, sizeof(message), TAG);
+	process_rx_data();
+}
+
+void send_image_without_stream()
+{
+	ESP_LOGI(TAG, "Sending image from button");
+	char message[100];
+    snprintf(message, sizeof(message), "%c{\"cmd\":\"%s\"}%c", CMD_JSON_STRING_START, CMD_GET_IMAGE_S, CMD_JSON_STRING_STOP);
+	push_rx_data(message, sizeof(message), TAG);
+	process_rx_data();
+}
+void send_image_in_stream()
+{
+	set_process_image(true);
 }
