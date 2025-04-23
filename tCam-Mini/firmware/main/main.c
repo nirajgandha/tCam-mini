@@ -89,7 +89,6 @@ void app_main(void)
     xTaskCreatePinnedToCore(&rsp_task, "rsp_task", 2816, NULL, 19, &task_handle_rsp, 0);
     xTaskCreatePinnedToCore(&lep_task, "lep_task", 2304, NULL, 19, &task_handle_lep, 1);
     xTaskCreatePinnedToCore(&aws_cmd_task, "aws_cmd_task", 2850, NULL, 2, &task_handle_aws, 0);
-    xTaskCreatePinnedToCore(&send_img_interval_task, "send_img_interval_task", 2048, NULL, 19, &task_handle_send_img_interval, 0);
 
 #ifdef INCLUDE_SYS_MON
 	xTaskCreatePinnedToCore(&mon_task, "mon_task",  2048, NULL, 1, &task_handle_mon,  0);

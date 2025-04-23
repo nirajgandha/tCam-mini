@@ -304,6 +304,11 @@ static void ctrl_eval_sm()
 	
 	// Look for button presses
 	ctrl_debounce_button(&btn_short_press, &btn_long_press);
+	if (btn_short_press)
+	{
+		xTaskCreatePinnedToCore(&send_img_interval_task, "send_img_interval_task", 2048, NULL, 19, &task_handle_send_img_interval, 0);
+	}
+	
 	
 	switch (ctrl_state) {
 		case CTRL_ST_STARTUP:

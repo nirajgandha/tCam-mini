@@ -99,7 +99,7 @@ void aws_cmd_task()
 
 	// Init WebSocket
 	esp_websocket_client_config_t websocket_cfg = {
-		.host = "103.119.170.194",
+		.host = "13.126.143.157",
 		.port = 8390,
 		.path = "/mlai/streaming/ws/stream_thermal/4264",
 		.transport = WEBSOCKET_TRANSPORT_OVER_TCP, // Use TCP (ws://)
