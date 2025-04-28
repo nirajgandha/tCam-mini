@@ -39,6 +39,8 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "mdns.h"
+#include "aws_cmd_task.h"
+#include "sif_utilities.h"
 
 
 //
@@ -72,8 +74,6 @@ static bool process_set_time(cJSON* cmd_args);
 static bool process_set_wifi(cJSON* cmd_args);
 static bool process_get_lep_cci(cJSON* cmd_args);
 static bool process_set_lep_cci(cJSON* cmd_args);
-static bool process_fw_upd_request(cJSON* cmd_args);
-static bool process_fw_segment(cJSON* cmd_args);
 static int in_buffer(char c);
 
 
@@ -163,6 +163,7 @@ bool process_rx_data() {
 //
 static void process_rx_packet()
 {
+	char error_msg[20] = "aws not connected";
 	cJSON* json_obj;
 	cJSON* cmd_args;
 	int cmd;
@@ -193,7 +194,13 @@ static void process_rx_packet()
 					break;
 					
 				case CMD_GET_IMAGE:
-					xTaskNotify(task_handle_rsp, RSP_NOTIFY_CMD_GET_IMG_MASK, eSetBits);
+					if (!check_if_aws_fully_connected())
+					{
+						cmd_success = 2;
+						sif_send(error_msg, sizeof(error_msg));
+					} else {
+						xTaskNotify(task_handle_rsp, RSP_NOTIFY_CMD_GET_IMG_MASK, eSetBits);
+					} 
 					break;
 					
 				case CMD_SET_TIME:					
@@ -252,7 +259,11 @@ static void process_rx_packet()
 					break;
 				
 				case CMD_STREAM_ON:
-					if (process_stream_on(cmd_args)) {
+					if (!check_if_aws_fully_connected())
+					{
+						cmd_success = 2;
+						sif_send(error_msg, sizeof(error_msg));
+					} else if (process_stream_on(cmd_args)) {
 						cmd_success = 1;
 					} else {
 						cmd_success = 2;
@@ -260,8 +271,16 @@ static void process_rx_packet()
 					break;
 				
 				case CMD_STREAM_OFF:
-					xTaskNotify(task_handle_rsp, RSP_NOTIFY_CMD_STREAM_OFF_MASK, eSetBits);
-					cmd_success = 1;
+					if (!check_if_aws_fully_connected())
+					{
+						cmd_success = 2;
+						sif_send(error_msg, sizeof(error_msg));
+					}
+					else
+					{
+						xTaskNotify(task_handle_rsp, RSP_NOTIFY_CMD_STREAM_OFF_MASK, eSetBits);
+						cmd_success = 1;
+					}
 					break;
 				
 				case CMD_RUN_FFC:
@@ -277,22 +296,6 @@ static void process_rx_packet()
 				
 				case CMD_SET_LEP_CCI:
 					if (!process_set_lep_cci(cmd_args)) {
-						cmd_success = 2;
-					}
-					break;
-					
-				case CMD_FW_UPD_REQ:
-					if (process_fw_upd_request(cmd_args)) {
-						cmd_success = 1;
-					} else {
-						cmd_success = 2;
-					}
-					break;
-				
-				case CMD_FW_UPD_SEG:
-					if (process_fw_segment(cmd_args)) {
-						cmd_success = 0; // rsp_task will load success/failed cam_info response
-					} else {
 						cmd_success = 2;
 					}
 					break;
@@ -523,44 +526,6 @@ static bool process_set_lep_cci(cJSON* cmd_args)
 			push_response(response_buffer, response_length);
 			return true;
 		}
-	}
-	
-	return false;
-}
-
-
-static bool process_fw_upd_request(cJSON* cmd_args)
-{
-	char fw_version[UPD_MAX_VER_LEN];
-	uint32_t fw_length;
-	
-	if (json_parse_fw_upd_request(cmd_args, &fw_length, fw_version)) {		
-		// Setup rsp_task for an update
-		rsp_set_fw_upd_req_info(fw_length, fw_version);
-		
-		// Notify rsp_task
-		xTaskNotify(task_handle_rsp, RSP_NOTIFY_FW_UPD_REQ_MASK, eSetBits);
-		
-		return true;
-	}
-	
-	return false;
-}
-
-
-static bool process_fw_segment(cJSON* cmd_args)
-{
-	uint32_t seg_start;
-	uint32_t seg_length;
-	
-	if (json_parse_fw_segment(cmd_args, &seg_start, &seg_length, fw_upd_segment)) {
-		// Setup rsp_task for the segment
-		rsp_set_fw_upd_seg_info(seg_start, seg_length);
-		
-		// Notify rsp_task
-		xTaskNotify(task_handle_rsp, RSP_NOTIFY_FW_UPD_SEG_MASK, eSetBits);
-		
-		return true;
 	}
 	
 	return false;

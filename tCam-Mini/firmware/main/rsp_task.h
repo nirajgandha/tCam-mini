@@ -80,8 +80,6 @@
 void rsp_task();
 void rsp_set_stream_parameters(uint32_t delay_ms, uint32_t num_frames);
 void rsp_set_cam_info_msg(uint32_t info_value, char* info_string);
-void rsp_set_fw_upd_req_info(uint32_t length, char* version);
-void rsp_set_fw_upd_seg_info(uint32_t start, uint32_t length);
 bool is_stream_on();
 
 #endif /* RSP_TASK_H */

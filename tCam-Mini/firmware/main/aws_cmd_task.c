@@ -48,7 +48,6 @@ static esp_websocket_client_handle_t ws_client = NULL;
 // Connected status
 static bool connected = false;
 
-
 static void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
 {
 	esp_websocket_event_data_t *data = (esp_websocket_event_data_t *)event_data;
@@ -57,7 +56,6 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
 	case WEBSOCKET_EVENT_CONNECTED:
 		ESP_LOGI(TAG, "WebSocket CONNECTED");
 		connected = true;
-		init_command_processor();
 		break;
 
 	case WEBSOCKET_EVENT_DISCONNECTED:
@@ -91,52 +89,38 @@ void aws_cmd_task()
 
 	ESP_LOGI(TAG, "Start task as client socket");
 
-	// Wait until the network interface is connected
+	
 	if (!(*net_is_connected)())
 	{
 		vTaskDelay(pdMS_TO_TICKS(500));
 	}
 
-	// Init WebSocket
-	esp_websocket_client_config_t websocket_cfg = {
-		.host = "13.126.143.157",
-		.port = 8390,
-		.path = "/mlai/streaming/ws/stream_thermal/4264",
-		.transport = WEBSOCKET_TRANSPORT_OVER_TCP, // Use TCP (ws://)
-		.disable_auto_reconnect = false,		   // Enable automatic reconnect
-		.ping_interval_sec = 30,				   // Send pings every 30 seconds
-		.keep_alive_enable = true,				   // Enable TCP keep-alive
-		.keep_alive_idle = 10,					   // Idle time before sending keep-alive
-		.keep_alive_interval = 5,				   // Interval between probes
-		.keep_alive_count = 100,				   // Retry count
-	};
-
-	ws_client = esp_websocket_client_init(&websocket_cfg);
-	esp_websocket_register_events(ws_client, WEBSOCKET_EVENT_ANY, websocket_event_handler, NULL);
-
-    esp_err_t aws_connection_start_code = -1;
-    while (1)
-    {
-       aws_connection_start_code = esp_websocket_client_start(ws_client);
-       if (aws_connection_start_code != ESP_OK)
-       {
-            ESP_LOGE(TAG, "Error in connecting to websocket: %s", esp_err_to_name(aws_connection_start_code));
-            vTaskDelay(pdMS_TO_TICKS(1000));
-       }
-       else
-       {
-            ESP_LOGI(TAG, "Connected to aws socket");
-            break;
-       }
-        
-    };
-	// Monitor connection
-    while (1) {
-        if (!connected) {
-            ESP_LOGW(TAG, "Waiting to (re)connect...");
-        }
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
+	while (1)
+	{
+		// Wait until the network interface is connected
+		if (!(*net_is_connected)())
+		{
+			vTaskDelay(pdMS_TO_TICKS(500));
+			continue;
+		}
+		if (!ws_client)
+		{
+			esp_websocket_client_config_t config = get_aws_client_config("4264", "13.126.143.157", 8390);
+			init_aws_client(&config);
+			start_aws_connection();
+			vTaskDelay(pdMS_TO_TICKS(10000));
+		} else {
+			ESP_LOGE(TAG, "!esp_websocket_client_is_connected(ws_client): %d", !esp_websocket_client_is_connected(ws_client));
+			if (ws_client && !esp_websocket_client_is_connected(ws_client))
+			{
+				ESP_LOGE(TAG, "close websocket connection");
+				esp_websocket_client_close(ws_client, pdMS_TO_TICKS(100));
+				ESP_LOGE(TAG, "destroy websocket connection and free all resources");
+				esp_websocket_client_destroy(ws_client);
+			}
+		}
+		vTaskDelay(pdMS_TO_TICKS(5000));
+	}
 }
 
 /**
@@ -179,4 +163,57 @@ void send_image_without_stream()
 void send_image_in_stream()
 {
 	set_process_image(true);
+}
+
+bool check_if_aws_fully_connected()
+{
+	return connected && ws_client && esp_websocket_client_is_connected(ws_client);	
+}
+
+void init_aws_client(esp_websocket_client_config_t* config)
+{
+	ESP_LOGE(TAG, "init_aws_client on %s:%d%s", config->host, config->port, config->path);
+	ws_client = esp_websocket_client_init(config);
+	esp_websocket_register_events(ws_client, WEBSOCKET_EVENT_ANY, websocket_event_handler, NULL);
+}
+
+esp_websocket_client_config_t get_aws_client_config(char* serialNumber, char* host, int port)
+{
+	char path[100];
+	snprintf(path, sizeof(path), "/mlai/streaming/ws/stream_thermal/%s",serialNumber);
+	ESP_LOGE(TAG, "Generated WebSocket path: %s", path);
+	esp_websocket_client_config_t websocket_cfg = {
+		.host = host,
+		.port = port,
+		.path = "/mlai/streaming/ws/stream_thermal/4264",
+		.transport = WEBSOCKET_TRANSPORT_OVER_TCP, // Use TCP (ws://)
+		.disable_auto_reconnect = true,		   // Enable automatic reconnect
+		.ping_interval_sec = 30,				   // Send pings every 30 seconds
+		.keep_alive_enable = true,				   // Enable TCP keep-alive
+		.keep_alive_idle = 10,					   // Idle time before sending keep-alive
+		.keep_alive_interval = 5,				   // Interval between probes
+		.keep_alive_count = 100,				   // Retry count
+	};
+	return websocket_cfg;
+}
+
+void start_aws_connection()
+{
+	ESP_LOGE(TAG, "start_aws_connection");
+	esp_err_t aws_connection_start_code = -1;
+    while (1)
+    {
+	   aws_connection_start_code = esp_websocket_client_start(ws_client);
+	   if (aws_connection_start_code != ESP_OK)
+	   {
+			ESP_LOGE(TAG, "Error in connecting to websocket: %s", esp_err_to_name(aws_connection_start_code));
+			vTaskDelay(pdMS_TO_TICKS(2000));
+	   }
+	   else
+	   {
+			ESP_LOGI(TAG, "Connected to aws socket");
+			break;
+	   }
+		
+	};
 }
