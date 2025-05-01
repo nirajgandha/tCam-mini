@@ -29,8 +29,6 @@
 
 #include <stdint.h>
 
-
-
 //
 // LEP Task Constants
 //
@@ -40,8 +38,6 @@
 
 // Reset fail delay before attempting a re-init (seconds)
 #define LEP_RESET_FAIL_RETRY_SECS 60
-
-
 
 //
 // LEP Task API

@@ -27,21 +27,14 @@
 #include <stdint.h>
 #include "esp_websocket_client.h"
 
-
-
 //
 // AWS Network CMD Task API
 //
 void aws_cmd_task();
-bool aws_cmd_connected();
-esp_websocket_client_config_t get_aws_client_config(char* serialNumber, char* host, int port);
+esp_websocket_client_config_t get_aws_client_config(char *serialNumber, char *host, int port);
 esp_websocket_client_handle_t aws_cmd_get_ws_handle();
-void init_aws_client(esp_websocket_client_config_t* config);
+void init_aws_client(esp_websocket_client_config_t *config);
 void start_aws_connection();
 bool check_if_aws_fully_connected();
-void start_stream_to_aws();
-void stop_stream_to_aws();
-void send_image_without_stream();
-void send_image_in_stream();
 
 #endif /* AWS_CMD_TASK_H */

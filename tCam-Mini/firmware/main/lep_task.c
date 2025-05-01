@@ -40,30 +40,26 @@
 #include "sys_utilities.h"
 #include "system_config.h"
 
-
 //
 // LEP Task constants
 //
 
 // Uncomment to log image acquisition timestamps
-//#define LOG_ACQ_TIMESTAMP
+// #define LOG_ACQ_TIMESTAMP
 
 // States
-#define STATE_INIT      0
-#define STATE_RUN       1
-#define STATE_RE_INIT   2
-#define STATE_ERROR     3
-
+#define STATE_INIT 0
+#define STATE_RUN 1
+#define STATE_RE_INIT 2
+#define STATE_ERROR 3
 
 //
 // LEP Task variables
 //
-static const char* TAG = "lep_task";
+static const char *TAG = "lep_task";
 
 static int lep_brd_type;
 static int lep_if_type;
-
-
 
 //
 // LEP Task API
@@ -83,58 +79,85 @@ void lep_task()
 	int sync_fail_count = 0;
 	int reset_fail_count = 0;
 	int64_t vsyncDetectedUsec;
-	
+	bool camera_present = true; // Flag to indicate if the camera is connected
+
 	ESP_LOGI(TAG, "Start task");
-	
+
 	// Attempt to initialize the CCI interface
-	if (!cci_init()) {
+	if (!cci_init())
+	{
 		ESP_LOGE(TAG, "Lepton CCI initialization failed");
-		rsp_set_cam_info_msg(RSP_INFO_INT_ERROR, "(FATAL) Lepton CCI initialization failed");
-		vTaskDelete(NULL);
-	}
-	
-	// Attempt to initialize the VoSPI interface
-	ctrl_get_if_mode(&lep_brd_type, &lep_if_type);
-	if (lep_brd_type == CTRL_BRD_ETH_TYPE) {
-		lep_csn_pin = BRD_E_LEP_CSN_IO;
-		lep_vsync_pin = BRD_E_LEP_VSYNC_IO;
-	} else {
-		lep_csn_pin = BRD_W_LEP_CSN_IO;
-		lep_vsync_pin = BRD_W_LEP_VSYNC_IO;
-	}
-	if (vospi_init(lep_csn_pin) != ESP_OK) {
-		ESP_LOGE(TAG, "Lepton VoSPI initialization failed");
-		ctrl_set_fault_type(CTRL_FAULT_LEP_VOSPI);
-		vTaskDelete(NULL);
+		camera_present = false;
+		// rsp_set_cam_info_msg(RSP_INFO_INT_ERROR, "(FATAL) Lepton CCI initialization failed");
+		// vTaskDelete(NULL);
 	}
 
-	while (true) {
-		switch (task_state) {
-			case STATE_INIT:  // After power-on reset
-				if (lepton_init()) {
-					task_state = STATE_RUN;
-				} else {
-					ESP_LOGE(TAG, "Lepton CCI initialization failed");
-					ctrl_set_fault_type(CTRL_FAULT_LEP_CCI);
-					
-					task_state = STATE_ERROR;
-					// Use reset_fail_count as a timer
-					reset_fail_count = LEP_RESET_FAIL_RETRY_SECS;
-				}
-				break;
-			
-			case STATE_RUN:   // Initialized and running
+	if (camera_present)
+	{
+		// Attempt to initialize the VoSPI interface
+		ctrl_get_if_mode(&lep_brd_type, &lep_if_type);
+		if (lep_brd_type == CTRL_BRD_ETH_TYPE)
+		{
+			lep_csn_pin = BRD_E_LEP_CSN_IO;
+			lep_vsync_pin = BRD_E_LEP_VSYNC_IO;
+		}
+		else
+		{
+			lep_csn_pin = BRD_W_LEP_CSN_IO;
+			lep_vsync_pin = BRD_W_LEP_VSYNC_IO;
+		}
+		if (vospi_init(lep_csn_pin) != ESP_OK)
+		{
+			ESP_LOGE(TAG, "Lepton VoSPI initialization failed");
+			camera_present = false;
+			// ctrl_set_fault_type(CTRL_FAULT_LEP_VOSPI);
+			// vTaskDelete(NULL);
+		}
+	}
+	bool lepton_initialization;
+	while (true)
+	{
+		switch (task_state)
+		{
+		case STATE_INIT: // After power-on reset
+			lepton_initialization = lepton_init();
+			if (camera_present)
+			{
+				camera_present = lepton_initialization;
+				task_state = STATE_RUN;
+			}
+			else if (!camera_present)
+			{
+				ESP_LOGW(TAG, "Camera not present. Switching to dummy data mode.");
+				task_state = STATE_RUN;
+			}
+			else
+			{
+				ESP_LOGE(TAG, "Lepton CCI initialization failed");
+				ctrl_set_fault_type(CTRL_FAULT_LEP_CCI);
+
+				task_state = STATE_ERROR;
+				// Use reset_fail_count as a timer
+				reset_fail_count = LEP_RESET_FAIL_RETRY_SECS;
+			}
+			break;
+
+		case STATE_RUN: // Initialized and running
+			if (camera_present)
+			{
 				// Spin waiting for vsync to be asserted
-				while (gpio_get_level((gpio_num_t) lep_vsync_pin) == 0) {
-//					vTaskDelay(pdMS_TO_TICKS(9));
+				while (gpio_get_level((gpio_num_t)lep_vsync_pin) == 0)
+				{
+					//					vTaskDelay(pdMS_TO_TICKS(9));
 				}
 				vsyncDetectedUsec = esp_timer_get_time();
-				
+
 				// Attempt to process a segment
-				if (vospi_transfer_segment(vsyncDetectedUsec)) {
+				if (vospi_transfer_segment(vsyncDetectedUsec))
+				{
 					// Got image
 					vsync_count = 0;
-					
+
 					// Copy the frame to the current half of the shared buffer and let rsp_task know
 					xSemaphoreTake(rsp_lep_buffer[rsp_buf_index].lep_mutex, portMAX_DELAY);
 					vospi_get_frame(&rsp_lep_buffer[rsp_buf_index]);
@@ -142,102 +165,148 @@ void lep_task()
 #ifdef LOG_ACQ_TIMESTAMP
 					ESP_LOGI(TAG, "Push into buf %d", rsp_buf_index);
 #endif
-					if (rsp_buf_index == 0) {
+					if (rsp_buf_index == 0)
+					{
 						xTaskNotify(task_handle_rsp, RSP_NOTIFY_LEP_FRAME_MASK_0, eSetBits);
 						rsp_buf_index = 1;
-					} else {
+					}
+					else
+					{
 						xTaskNotify(task_handle_rsp, RSP_NOTIFY_LEP_FRAME_MASK_1, eSetBits);
 						rsp_buf_index = 0;
 					}
-					
+
 					// Clear the resynchronization fault indication if necessary (since we are working again)
-					if (sync_fail_count >= LEP_SYNC_FAIL_FAULT_LIMIT) {
+					if (sync_fail_count >= LEP_SYNC_FAIL_FAULT_LIMIT)
+					{
 						ctrl_set_fault_type(CTRL_FAULT_NONE);
 					}
 					// Hold fault counters reset while operating
 					sync_fail_count = 0;
 					reset_fail_count = 0;
-					
+
 					vTaskDelay(pdMS_TO_TICKS(30));
-				} else {
+				}
+				else
+				{
 					// We should see a valid frame every 12 vsync interrupts (one frame period).
 					// However, since we may be resynchronizing with the VoSPI stream and our task
 					// may be interrupted by other tasks, we give the lepton extra frame periods
 					// to start correctly streaming data.  We may still fail when the lepton runs
 					// a FFC since that takes a long time.
-					if (++vsync_count == 36) {
+					if (++vsync_count == 36)
+					{
 						vsync_count = 0;
 						ESP_LOGI(TAG, "Could not get lepton image");
-						
+
 						// Pause to allow resynchronization
 						// (Lepton 3.5 data sheet section 4.2.3.3.1 "Establishing/Re-Establishing Sync")
 						vTaskDelay(pdMS_TO_TICKS(185));
-						
+
 						// Check for too many consecutive resynchronization failures.
 						// This should only occur if something has gone wrong.
-						if (sync_fail_count++ == LEP_SYNC_FAIL_FAULT_LIMIT) {
+						if (sync_fail_count++ == LEP_SYNC_FAIL_FAULT_LIMIT)
+						{
 							ctrl_set_fault_type(CTRL_FAULT_LEP_SYNC);
-							if (reset_fail_count == 0) {
+							if (reset_fail_count == 0)
+							{
 								// Reset the first time
 								task_state = STATE_RE_INIT;
-							} else {
+							}
+							else
+							{
 								ESP_LOGE(TAG, "Could not sync to VoSPI after task reset");
-								
+
 								// Possibly permanent error condition
 								task_state = STATE_ERROR;
-								
+
 								// Use reset_fail_count as a timer
 								reset_fail_count = LEP_RESET_FAIL_RETRY_SECS;
 							}
 						}
 					}
 				}
-				break;
-			
-			case STATE_RE_INIT:  // Reset and re-init
-				ESP_LOGI(TAG,  "Reset Lepton");
-				
-				// Assert hardware reset
-				if (lep_brd_type == CTRL_BRD_ETH_TYPE) {
-					gpio_set_level(BRD_E_LEP_RESET_IO, 1);
-					vTaskDelay(pdMS_TO_TICKS(10));
-					gpio_set_level(BRD_E_LEP_RESET_IO, 0);
-				} else {
-					gpio_set_level(BRD_W_LEP_RESET_IO, 1);
-					vTaskDelay(pdMS_TO_TICKS(10));
-					gpio_set_level(BRD_W_LEP_RESET_IO, 0);
+			}
+			else
+			{
+				// Send dummy data
+				xSemaphoreTake(rsp_lep_buffer[rsp_buf_index].lep_mutex, portMAX_DELAY);
+				// Generate dummy data once
+				for (int y = 0; y < 120; y++)
+				{
+					for (int x = 0; x < 160; x++)
+					{
+						// Example: Create a gradient pattern
+						rsp_lep_buffer[rsp_buf_index].lep_bufferP[y * 160 + x] = (x + y) % 256;
+					}
 				}
-				
-				// Delay for Lepton internal initialization (max 950 mSec)
-    			vTaskDelay(pdMS_TO_TICKS(1000));
-    			
-    			// Attempt to re-initialize the Lepton
-    			if (lepton_init()) {
-					task_state = STATE_RUN;
-					
-					// Note the reset
-    				reset_fail_count = 1;
-				} else {
-					ESP_LOGE(TAG, "Lepton CCI initialization failed");
-					ctrl_set_fault_type(CTRL_FAULT_LEP_CCI);
-					
-					task_state = STATE_ERROR;
-					// Use reset_fail_count as a timer
-					reset_fail_count = LEP_RESET_FAIL_RETRY_SECS;
+				xSemaphoreGive(rsp_lep_buffer[rsp_buf_index].lep_mutex);
+
+				if (rsp_buf_index == 0)
+				{
+					xTaskNotify(task_handle_rsp, RSP_NOTIFY_LEP_FRAME_MASK_0, eSetBits);
+					rsp_buf_index = 1;
 				}
-				break;
-			
-			case STATE_ERROR:  // Initialization or re-init failed
-				// Do nothing for a good long while
-				vTaskDelay(pdMS_TO_TICKS(1000));
-				if (--reset_fail_count == 0) {
-					// Attempt another reset/re-init
-					task_state =  STATE_RE_INIT;
+				else
+				{
+					xTaskNotify(task_handle_rsp, RSP_NOTIFY_LEP_FRAME_MASK_1, eSetBits);
+					rsp_buf_index = 0;
 				}
-				break;
-			
-			default:
+				vTaskDelay(pdMS_TO_TICKS(500));
+			}
+			break;
+
+		case STATE_RE_INIT: // Reset and re-init
+			ESP_LOGI(TAG, "Reset Lepton");
+
+			// Assert hardware reset
+			if (lep_brd_type == CTRL_BRD_ETH_TYPE)
+			{
+				gpio_set_level(BRD_E_LEP_RESET_IO, 1);
+				vTaskDelay(pdMS_TO_TICKS(10));
+				gpio_set_level(BRD_E_LEP_RESET_IO, 0);
+			}
+			else
+			{
+				gpio_set_level(BRD_W_LEP_RESET_IO, 1);
+				vTaskDelay(pdMS_TO_TICKS(10));
+				gpio_set_level(BRD_W_LEP_RESET_IO, 0);
+			}
+
+			// Delay for Lepton internal initialization (max 950 mSec)
+			vTaskDelay(pdMS_TO_TICKS(1000));
+
+			// Attempt to re-initialize the Lepton
+			if (lepton_init())
+			{
+				task_state = STATE_RUN;
+
+				// Note the reset
+				reset_fail_count = 1;
+			}
+			else
+			{
+				ESP_LOGE(TAG, "Lepton CCI initialization failed");
+				ctrl_set_fault_type(CTRL_FAULT_LEP_CCI);
+
+				task_state = STATE_ERROR;
+				// Use reset_fail_count as a timer
+				reset_fail_count = LEP_RESET_FAIL_RETRY_SECS;
+			}
+			break;
+
+		case STATE_ERROR: // Initialization or re-init failed
+			// Do nothing for a good long while
+			vTaskDelay(pdMS_TO_TICKS(1000));
+			if (--reset_fail_count == 0)
+			{
+				// Attempt another reset/re-init
 				task_state = STATE_RE_INIT;
+			}
+			break;
+
+		default:
+			task_state = STATE_RE_INIT;
 		}
 	}
 }

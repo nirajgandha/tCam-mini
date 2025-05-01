@@ -35,52 +35,62 @@
 #include "sys_utilities.h"
 #include "send_img_interval_task.h"
 
-
-
-static const char* TAG = "main";
+static const char *TAG = "main";
 
 void app_main(void)
 {
-	int brd_type;
-	int if_mode;
-	
+    int brd_type;
+    int if_mode;
+
     ESP_LOGI(TAG, "tCamMini starting");
-    
+
     // Start the control task to light the red light immediately
     // and to determine what kind of interface we will be using
     xTaskCreatePinnedToCore(&ctrl_task, "ctrl_task", 2176, NULL, 1, &task_handle_ctrl, 0);
-    
+
     // Allow task to start and determine operating mode
     vTaskDelay(pdMS_TO_TICKS(50));
     ctrl_get_if_mode(&brd_type, &if_mode);
-    
+
     // Initialize the SPI and I2C drivers
-    if (!system_esp_io_init(brd_type, if_mode)) {
-    	ESP_LOGE(TAG, "ESP32 init failed");
-    	ctrl_set_fault_type(CTRL_FAULT_ESP32_INIT);
-    	while (1) {vTaskDelay(pdMS_TO_TICKS(100));}
+    if (!system_esp_io_init(brd_type, if_mode))
+    {
+        ESP_LOGE(TAG, "ESP32 init failed");
+        ctrl_set_fault_type(CTRL_FAULT_ESP32_INIT);
+        while (1)
+        {
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
     }
-    
+
     // Initialize the camera's peripheral devices
-    if (!system_peripheral_init(brd_type, if_mode)) {
-    	ESP_LOGE(TAG, "Peripheral init failed");
-    	ctrl_set_fault_type(CTRL_FAULT_PERIPH_INIT);
-    	while (1) {vTaskDelay(pdMS_TO_TICKS(100));}
+    if (!system_peripheral_init(brd_type, if_mode))
+    {
+        ESP_LOGE(TAG, "Peripheral init failed");
+        ctrl_set_fault_type(CTRL_FAULT_PERIPH_INIT);
+        while (1)
+        {
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
     }
-    
+
     // Pre-allocate big buffers
-    if (!system_buffer_init()) {
-    	ESP_LOGE(TAG, "Memory allocate failed");
-    	ctrl_set_fault_type(CTRL_FAULT_MEM_INIT);
-    	while (1) {vTaskDelay(pdMS_TO_TICKS(100));}
+    if (!system_buffer_init())
+    {
+        ESP_LOGE(TAG, "Memory allocate failed");
+        ctrl_set_fault_type(CTRL_FAULT_MEM_INIT);
+        while (1)
+        {
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
     }
-    
+
     // Delay for Lepton internal initialization on power-on (max 950 mSec)
     vTaskDelay(pdMS_TO_TICKS(900));
-    
+
     // Notify control task that we've successfully started up
     xTaskNotify(task_handle_ctrl, CTRL_NOTIFY_STARTUP_DONE, eSetBits);
-    
+
     // Start tasks
     //  Core 0 : PRO - everything but lepton task
     //  Core 1 : APP - lepton task
@@ -91,6 +101,6 @@ void app_main(void)
     xTaskCreatePinnedToCore(&aws_cmd_task, "aws_cmd_task", 2850, NULL, 2, &task_handle_aws, 0);
 
 #ifdef INCLUDE_SYS_MON
-	xTaskCreatePinnedToCore(&mon_task, "mon_task",  2048, NULL, 1, &task_handle_mon,  0);
+    xTaskCreatePinnedToCore(&mon_task, "mon_task", 2048, NULL, 1, &task_handle_mon, 0);
 #endif
 }

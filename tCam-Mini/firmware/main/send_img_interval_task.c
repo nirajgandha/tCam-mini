@@ -44,18 +44,17 @@ static const char *TAG = "send_img_interval_cmd_task";
 void send_img_interval_task()
 {
 
-	
 	long interval_in_msec_send_image = 30 * 1000;
 	ESP_LOGI(TAG, "Start task to trigger cmd on tx/rx port at interval(mSec): %ld", interval_in_msec_send_image);
 
-    char message[100];
+	char message[100];
 	bool toggle1 = false;
 	bool toggle2 = false;
 
 	while (1)
 	{
 		bool should_send = false;
-		if (!(aws_cmd_connected()))
+		if (!(check_if_aws_fully_connected()))
 		{
 			vTaskDelay(pdMS_TO_TICKS(1000));
 			continue;
@@ -93,12 +92,11 @@ void send_img_interval_task()
 			should_send = true;
 			goto send_message;
 		}
-		send_message:
+	send_message:
 		if (should_send)
 		{
 			sif_send(message, sizeof(message));
 		}
 		vTaskDelay(pdMS_TO_TICKS(interval_in_msec_send_image));
-		
 	}
 }

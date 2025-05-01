@@ -64,13 +64,6 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
 		break;
 
 	case WEBSOCKET_EVENT_DATA:
-		ESP_LOGE(TAG,"WEBSOCKET_EVENT_DATA_RECEIVED: %s with op_code: %x", (char *)data->data_ptr, data->op_code);
-
-		if (data->op_code == WS_TRANSPORT_OPCODES_TEXT || data->op_code == WS_TRANSPORT_OPCODES_BINARY)
-		{
-			push_rx_data((char *)data->data_ptr, data->data_len, TAG);
-			while (process_rx_data()){}
-		}
 		break;
 	case WEBSOCKET_EVENT_ERROR:
 		ESP_LOGE(TAG, "WebSocket ERROR");
@@ -103,8 +96,9 @@ void aws_cmd_task()
 			init_aws_client(&config);
 			start_aws_connection();
 			vTaskDelay(pdMS_TO_TICKS(10000));
-		} else {
-			ESP_LOGE(TAG, "!esp_websocket_client_is_connected(ws_client): %d", !esp_websocket_client_is_connected(ws_client));
+		}
+		else
+		{
 			if (ws_client && !esp_websocket_client_is_connected(ws_client))
 			{
 				ESP_LOGE(TAG, "close websocket connection");
@@ -118,69 +112,35 @@ void aws_cmd_task()
 	}
 }
 
-/**
- * True when connected to a client
- */
-bool aws_cmd_connected()
-{
-	return connected;
-}
-
 // Optional cleaner access
 esp_websocket_client_handle_t aws_cmd_get_ws_handle()
 {
 	return ws_client;
 }
 
-void start_stream_to_aws()
-{
-	char message[100];
-    snprintf(message, sizeof(message), "%c{\"cmd\":\"%s\", \"args\":{\"delay_msec\":0,\"num_frames\":0}}%c", CMD_JSON_STRING_START, CMD_STREAM_ON_S, CMD_JSON_STRING_STOP);
-	push_rx_data(message, sizeof(message), TAG);
-	process_rx_data();
-}
-void stop_stream_to_aws()
-{
-	char message[100];
-    snprintf(message, sizeof(message), "%c{\"cmd\":\"%s\"}%c", CMD_JSON_STRING_START, CMD_STREAM_OFF_S, CMD_JSON_STRING_STOP);
-	push_rx_data(message, sizeof(message), TAG);
-	process_rx_data();
-}
-
-void send_image_without_stream()
-{
-	ESP_LOGI(TAG, "Sending image from button");
-	char message[100];
-    snprintf(message, sizeof(message), "%c{\"cmd\":\"%s\"}%c", CMD_JSON_STRING_START, CMD_GET_IMAGE_S, CMD_JSON_STRING_STOP);
-	push_rx_data(message, sizeof(message), TAG);
-	process_rx_data();
-}
-void send_image_in_stream()
-{
-	set_process_image(true);
-}
-
+/**
+ * True when connected to a aws server and connection is intact
+ */
 bool check_if_aws_fully_connected()
 {
-	return connected && ws_client && esp_websocket_client_is_connected(ws_client);	
+	return connected && ws_client && esp_websocket_client_is_connected(ws_client);
 }
 
-void init_aws_client(esp_websocket_client_config_t* config)
+void init_aws_client(esp_websocket_client_config_t *config)
 {
 	ESP_LOGE(TAG, "init_aws_client on %s:%d%s", config->host, config->port, config->path);
 	ws_client = esp_websocket_client_init(config);
 	esp_websocket_register_events(ws_client, WEBSOCKET_EVENT_ANY, websocket_event_handler, NULL);
 }
 
-esp_websocket_client_config_t get_aws_client_config(char* serialNumber, char* host, int port)
+esp_websocket_client_config_t get_aws_client_config(char *serialNumber, char *host, int port)
 {
-	char path[100];
-	snprintf(path, sizeof(path), "/mlai/streaming/ws/stream_thermal/%s",serialNumber);
-	ESP_LOGE(TAG, "Generated WebSocket path: %s", path);
+	static char path[100]; // Use a static buffer to avoid dynamic memory allocation issues
+	snprintf(path, sizeof(path), "/mlai/streaming/ws/stream_thermal/%s", serialNumber);
 	esp_websocket_client_config_t websocket_cfg = {
 		.host = host,
 		.port = port,
-		.path = "/mlai/streaming/ws/stream_thermal/4264",
+		.path = path,
 		.transport = WEBSOCKET_TRANSPORT_OVER_TCP, // Use TCP (ws://)
 		.disable_auto_reconnect = false,		   // Enable automatic reconnect
 		.ping_interval_sec = 30,				   // Send pings every 30 seconds
@@ -196,19 +156,18 @@ void start_aws_connection()
 {
 	ESP_LOGE(TAG, "start_aws_connection");
 	esp_err_t aws_connection_start_code = -1;
-    while (1)
-    {
-	   aws_connection_start_code = esp_websocket_client_start(ws_client);
-	   if (aws_connection_start_code != ESP_OK)
-	   {
+	while (1)
+	{
+		aws_connection_start_code = esp_websocket_client_start(ws_client);
+		if (aws_connection_start_code != ESP_OK)
+		{
 			ESP_LOGE(TAG, "Error in connecting to websocket: %s", esp_err_to_name(aws_connection_start_code));
 			vTaskDelay(pdMS_TO_TICKS(2000));
-	   }
-	   else
-	   {
+		}
+		else
+		{
 			ESP_LOGI(TAG, "Connected to aws socket");
 			break;
-	   }
-		
+		}
 	};
 }

@@ -375,23 +375,20 @@ void send_data_to_aws_socket(char* rsp, int rsp_length)
 {
 	// int byte_offset;
 	int len;
-	if (aws_cmd_connected())
+	if (check_if_aws_fully_connected())
 	{
 		esp_websocket_client_handle_t ws = aws_cmd_get_ws_handle();
-		if (check_if_aws_fully_connected())
+		len = rsp_length;
+		// Write our response to the socket
+		int byte_sent = esp_websocket_client_send_text(ws, rsp, len, portMAX_DELAY);
+		if (byte_sent < 0)
 		{
-			len = rsp_length;
-			// Write our response to the socket
-			int byte_sent = esp_websocket_client_send_text(ws, rsp, len, portMAX_DELAY);
-			if (byte_sent < 0)
-			{
-				ESP_LOGE(TAG, "Error in aws socket send: errno %d", errno);
-			}
+			ESP_LOGE(TAG, "Error in aws socket send: errno %d", errno);
 		}
-		else
-		{
-			ESP_LOGW(TAG, "WebSocket not connected, cannot send");
-		}
+	}
+	else
+	{
+		ESP_LOGW(TAG, "WebSocket not connected, cannot send");
 	}
 }
 
