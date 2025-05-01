@@ -89,12 +89,6 @@ void aws_cmd_task()
 
 	ESP_LOGI(TAG, "Start task as client socket");
 
-	
-	if (!(*net_is_connected)())
-	{
-		vTaskDelay(pdMS_TO_TICKS(500));
-	}
-
 	while (1)
 	{
 		// Wait until the network interface is connected
@@ -117,6 +111,7 @@ void aws_cmd_task()
 				esp_websocket_client_close(ws_client, pdMS_TO_TICKS(100));
 				ESP_LOGE(TAG, "destroy websocket connection and free all resources");
 				esp_websocket_client_destroy(ws_client);
+				ws_client = NULL;
 			}
 		}
 		vTaskDelay(pdMS_TO_TICKS(5000));
@@ -187,7 +182,7 @@ esp_websocket_client_config_t get_aws_client_config(char* serialNumber, char* ho
 		.port = port,
 		.path = "/mlai/streaming/ws/stream_thermal/4264",
 		.transport = WEBSOCKET_TRANSPORT_OVER_TCP, // Use TCP (ws://)
-		.disable_auto_reconnect = true,		   // Enable automatic reconnect
+		.disable_auto_reconnect = false,		   // Enable automatic reconnect
 		.ping_interval_sec = 30,				   // Send pings every 30 seconds
 		.keep_alive_enable = true,				   // Enable TCP keep-alive
 		.keep_alive_idle = 10,					   // Idle time before sending keep-alive
