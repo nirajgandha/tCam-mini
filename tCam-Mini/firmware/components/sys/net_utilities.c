@@ -2,7 +2,7 @@
  * Network related utilities
  *
  * Contains definitions and a set of function pointers to the selected
- * networking hardware functions (ethernet or WiFi) so that other can 
+ * networking hardware functions (ethernet or WiFi) so that other can
  * operate without having to know which hardware is in use.
  *
  * Copyright 2022 Dan Julio
@@ -28,29 +28,29 @@
 #include "wifi_utilities.h"
 #include "ctrl_task.h"
 
-
-
 //
 // Network Utilities Function pointers
 //
 bool (*net_init)();
 bool (*net_reinit)();
 bool (*net_is_connected)();
-net_info_t* (*net_get_info)();
-
-
+net_info_t *(*net_get_info)();
+onboarding_details_t *(*onboarding_details_info)();
 
 //
 // Network Utilities API
 //
 void net_init_if(int if_type)
 {
-	if (if_type == CTRL_IF_MODE_ETH) {
+	if (if_type == CTRL_IF_MODE_ETH)
+	{
 		net_init = &eth_init;
 		net_reinit = &eth_reinit;
 		net_is_connected = &eth_is_connected;
 		net_get_info = &eth_get_info;
-	} else {
+	}
+	else
+	{
 		net_init = &wifi_init;
 		net_reinit = &wifi_reinit;
 		net_is_connected = &wifi_is_connected;

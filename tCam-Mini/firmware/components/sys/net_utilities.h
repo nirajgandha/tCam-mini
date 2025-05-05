@@ -2,7 +2,7 @@
  * Network related utilities
  *
  * Contains definitions and a set of function pointers to the selected
- * networking hardware functions (ethernet or WiFi) so that other can 
+ * networking hardware functions (ethernet or WiFi) so that other can
  * operate without having to know which hardware is in use.
  *
  * Copyright 2022 Dan Julio
@@ -37,24 +37,23 @@
 //   Used for both interfaces although only a subset of flags are used
 //   when the ethernet interface is active.  Ethernet can only be a client.
 #define NET_INFO_FLAG_STARTUP_ENABLE 0x01
-#define NET_INFO_FLAG_INITIALIZED    0x02
-#define NET_INFO_FLAG_ENABLED        0x04
-#define NET_INFO_FLAG_CONNECTED      0x08
-#define NET_INFO_FLAG_CL_STATIC_IP   0x10
-#define NET_INFO_FLAG_CLIENT_MODE    0x80
-
-
+#define NET_INFO_FLAG_INITIALIZED 0x02
+#define NET_INFO_FLAG_ENABLED 0x04
+#define NET_INFO_FLAG_CONNECTED 0x08
+#define NET_INFO_FLAG_CL_STATIC_IP 0x10
+#define NET_INFO_FLAG_CLIENT_MODE 0x80
 
 //
 // Network Utilities Data structures
 //   Used for both interfaces although only ap_ssid (camera name), flags,
 //   sta_ip_addr/netmask and cur_ip_addr are used when the ethernet interface is active
 //
-typedef struct {
-	char* ap_ssid;             // AP SSID is also the Camera Name
-	char* sta_ssid;
-	char* ap_pw;
-	char* sta_pw;
+typedef struct
+{
+	char *ap_ssid; // AP SSID is also the Camera Name
+	char *sta_ssid;
+	char *ap_pw;
+	char *sta_pw;
 	uint8_t flags;
 	uint8_t ap_ip_addr[4];
 	uint8_t sta_ip_addr[4];
@@ -62,7 +61,12 @@ typedef struct {
 	uint8_t cur_ip_addr[4];
 } net_info_t;
 
-
+typedef struct
+{
+	char *serial_number;
+	char *aws_ip_address;
+	int port_number;
+} onboarding_details_t;
 
 //
 // Network Utilities Function pointers
@@ -70,9 +74,8 @@ typedef struct {
 extern bool (*net_init)();
 extern bool (*net_reinit)();
 extern bool (*net_is_connected)();
-extern net_info_t* (*net_get_info)();
-
-
+extern net_info_t *(*net_get_info)();
+extern onboarding_details_t *(*onboarding_details_info)();
 
 //
 // Network Utilities API

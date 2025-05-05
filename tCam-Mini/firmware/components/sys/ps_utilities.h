@@ -35,8 +35,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-
-
 //
 // PS Utilities Constants
 //
@@ -46,22 +44,23 @@
 #define PS_DEFAULT_AP_SSID "tCam-Mini-"
 
 // Field lengths
-#define PS_SSID_MAX_LEN     32
-#define PS_PW_MAX_LEN       63
-#define PS_OLD_PW_MAX_LEN   32
-
-
+#define PS_SSID_MAX_LEN 32
+#define PS_PW_MAX_LEN 63
+#define PS_OLD_PW_MAX_LEN 32
+#define PS_IP_ADDRESS_MAX_LENGTH 18
 
 //
 // PS Utilities API
 //
 bool ps_init(int brd, int iface);
-void ps_get_lep_state(json_config_t* state);
-void ps_set_lep_state(const json_config_t* state);
-void ps_get_net_info(net_info_t* info);
-void ps_set_net_info(const net_info_t* info);
+void ps_get_lep_state(json_config_t *state);
+void ps_set_lep_state(const json_config_t *state);
+void ps_get_net_info(net_info_t *info);
+void ps_set_net_info(const net_info_t *info);
 bool ps_reinit_net();
-bool ps_has_new_cam_name(const net_info_t* info);
+bool ps_has_new_cam_name(const net_info_t *info);
 char ps_nibble_to_ascii(uint8_t n);
+void ps_get_onboarding_details_info(onboarding_details_t *onboarding_details_info);
+void ps_set_onboarding_details_info(const onboarding_details_t *onboarding_details_info);
 
 #endif /* PS_UTILITIES_H */
