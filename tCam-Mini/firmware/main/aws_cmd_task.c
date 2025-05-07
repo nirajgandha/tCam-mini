@@ -36,6 +36,8 @@
 #include "freertos/task.h"
 #include "esp_transport_ws.h"
 #include "json_utilities.h"
+#include "ps_utilities.h"
+#include "sif_utilities.h"
 
 //
 // AWS Network CMD Task variables
@@ -81,6 +83,21 @@ void aws_cmd_task()
 {
 
 	ESP_LOGI(TAG, "Start task as client socket");
+	char message[100];
+	while (1)
+	{
+		onboarding_details_t *onboarding_details_info;
+		ps_get_onboarding_details_info(&onboarding_details_info);
+		if (!onboarding_details_info->update_required)
+		{
+			break;
+		}
+		memset(message, 0, sizeof(message));
+		ESP_LOGW(TAG, "requires update in onboarding details, so sending get_onboarding_details cmd to esp32");
+		snprintf(message, sizeof(message), "%c{\"cmd\":\"%s\"}%c", CMD_JSON_STRING_START, CMD_GET_ONBOARD_DETAILS_FROM_ESP32, CMD_JSON_STRING_STOP);
+		sif_send(message, sizeof(message));
+		vTaskDelay(pdMS_TO_TICKS(500));
+	}
 
 	while (1)
 	{

@@ -85,7 +85,8 @@ const cmd_name_t command_list[CMD_NUM] = {
 	{CMD_FW_UPD_REQ_S, CMD_FW_UPD_REQ},
 	{CMD_FW_UPD_SEG_S, CMD_FW_UPD_SEG},
 	{CMD_DUMP_SCREEN_S, CMD_DUMP_SCREEN},
-	{CMD_ONBOARD_DETAILS_S, CMD_ONBOARD_DETAILS}};
+	{CMD_GET_ONBOARD_DETAILS_FROM_ESP32_S, CMD_GET_ONBOARD_DETAILS_FROM_ESP32},
+	{CMD_SET_ONBOARD_DETAILS_FROM_ESP32_S, CMD_SET_ONBOARD_DETAILS_FROM_ESP32}};
 
 //
 // JSON Utilities variables
@@ -885,180 +886,90 @@ bool json_parse_set_wifi(cJSON *cmd_args, net_info_t *new_net_info)
  * Fill in a net_info_t object with arguments from a set_wifi command, preserving
  * unmodified elements
  */
-bool json_parse_set_onboard_details(cJSON *cmd_args, net_info_t *new_net_info)
+bool json_parse_set_onboard_details(cJSON *cmd_args, onboarding_details_t *new_onboarding_details_info)
 {
 	char *s;
 	int i;
 	int item_count = 0;
-	net_info_t *net_infoP;
+	onboarding_details_t *onboarding_details_infoP;
+	bool aws_ip_update_required = false;
+	bool port_number_update_required = false;
+	bool serial_number_update_required = false;
 
 	// Get existing settings
-	net_infoP = net_get_info();
+	onboarding_details_infoP = onboarding_details_info();
 
 	if (cmd_args != NULL)
 	{
 		if (cJSON_HasObjectItem(cmd_args, "ap_ssid"))
 		{
-			s = cJSON_GetObjectItem(cmd_args, "ap_ssid")->valuestring;
+			s = cJSON_GetObjectItem(cmd_args, "aws_ip_address")->valuestring;
 			i = strlen(s);
 			if (i == 0)
 			{
-				ESP_LOGE(TAG, "set_wifi zero length ap_ssid");
+				ESP_LOGE(TAG, "set_onboarding_details zero length aws_ip_address");
 				return false;
 			}
-			else if (i <= PS_SSID_MAX_LEN)
+			else if (i <= PS_IP_ADDRESS_MAX_LENGTH)
 			{
-				strcpy(new_net_info->ap_ssid, s);
+				strcpy(new_onboarding_details_info->aws_ip_address, s);
 				item_count++;
 			}
 			else
 			{
-				ESP_LOGE(TAG, "set_wifi ap_ssid: %s too long", s);
+				ESP_LOGE(TAG, "set_onboarding_details aws_ip_address: %s too long", s);
 				return false;
 			}
 		}
 		else
 		{
-			strcpy(new_net_info->ap_ssid, net_infoP->ap_ssid);
+			strcpy(new_onboarding_details_info->aws_ip_address, onboarding_details_infoP->aws_ip_address);
+			aws_ip_update_required = true;
 		}
 
-		if (cJSON_HasObjectItem(cmd_args, "sta_ssid"))
+		if (cJSON_HasObjectItem(cmd_args, "port_number"))
 		{
-			s = cJSON_GetObjectItem(cmd_args, "sta_ssid")->valuestring;
+			i = cJSON_GetObjectItem(cmd_args, "port_number")->valueint;
+			if (i <= 0 || i > PS_PORT_MAX_LENGTH)
+			{
+				ESP_LOGE(TAG, "set_onboarding_details invalid port_number %d", i);
+				return false;
+			}
+			else
+			{
+				new_onboarding_details_info->port_number = i;
+				item_count++;
+			}
+		}
+		else
+		{
+			new_onboarding_details_info->port_number = onboarding_details_infoP->port_number;
+			port_number_update_required = true;
+		}
+
+		if (cJSON_HasObjectItem(cmd_args, "serial_number"))
+		{
+			s = cJSON_GetObjectItem(cmd_args, "serial_number")->valuestring;
 			i = strlen(s);
-			if (i == 0)
+			if ((i >= 1) && (i <= PS_PW_MAX_LEN))
 			{
-				ESP_LOGE(TAG, "set_wifi zero length sta_ssid");
-				return false;
-			}
-			else if (i <= PS_SSID_MAX_LEN)
-			{
-				strcpy(new_net_info->sta_ssid, s);
+				strcpy(new_onboarding_details_info->serial_number, s);
 				item_count++;
 			}
 			else
 			{
-				ESP_LOGE(TAG, "set_wifi sta_ssid: %s too long", s);
+				ESP_LOGE(TAG, "set_onboarding_details serial_number: %s must be between 1 and %d characters", s, PS_PW_MAX_LEN);
 				return false;
 			}
 		}
 		else
 		{
-			strcpy(new_net_info->sta_ssid, net_infoP->sta_ssid);
+			strcpy(new_onboarding_details_info->serial_number, onboarding_details_infoP->serial_number);
+			serial_number_update_required = true;
 		}
 
-		if (cJSON_HasObjectItem(cmd_args, "ap_pw"))
-		{
-			s = cJSON_GetObjectItem(cmd_args, "ap_pw")->valuestring;
-			i = strlen(s);
-			if ((i >= 8) && (i <= PS_PW_MAX_LEN))
-			{
-				strcpy(new_net_info->ap_pw, s);
-				item_count++;
-			}
-			else
-			{
-				ESP_LOGE(TAG, "set_wifi ap_pw: %s must be between 8 and %d characters", s, PS_PW_MAX_LEN);
-				return false;
-			}
-		}
-		else
-		{
-			strcpy(new_net_info->ap_pw, net_infoP->ap_pw);
-		}
-
-		if (cJSON_HasObjectItem(cmd_args, "sta_pw"))
-		{
-			s = cJSON_GetObjectItem(cmd_args, "sta_pw")->valuestring;
-			i = strlen(s);
-			if ((i >= 8) && (i <= PS_PW_MAX_LEN))
-			{
-				strcpy(new_net_info->sta_pw, s);
-				item_count++;
-			}
-			else
-			{
-				ESP_LOGE(TAG, "set_wifi sta_pw: %s must be between 8 and %d characters", s, PS_PW_MAX_LEN);
-				return false;
-			}
-		}
-		else
-		{
-			strcpy(new_net_info->sta_pw, net_infoP->sta_pw);
-		}
-
-		if (cJSON_HasObjectItem(cmd_args, "flags"))
-		{
-			new_net_info->flags = (uint8_t)cJSON_GetObjectItem(cmd_args, "flags")->valueint;
-			item_count++;
-		}
-		else
-		{
-			new_net_info->flags = net_infoP->flags;
-		}
-
-		if (cJSON_HasObjectItem(cmd_args, "ap_ip_addr"))
-		{
-			s = cJSON_GetObjectItem(cmd_args, "ap_ip_addr")->valuestring;
-			if (json_ip_string_to_array(new_net_info->ap_ip_addr, s))
-			{
-				item_count++;
-			}
-			else
-			{
-				ESP_LOGE(TAG, "Illegal set_wifi ap_ip_addr: %s", s);
-				return false;
-			}
-		}
-		else
-		{
-			for (i = 0; i < 4; i++)
-				new_net_info->ap_ip_addr[i] = net_infoP->ap_ip_addr[i];
-		}
-
-		if (cJSON_HasObjectItem(cmd_args, "sta_ip_addr"))
-		{
-			s = cJSON_GetObjectItem(cmd_args, "sta_ip_addr")->valuestring;
-			if (json_ip_string_to_array(new_net_info->sta_ip_addr, s))
-			{
-				item_count++;
-			}
-			else
-			{
-				ESP_LOGE(TAG, "Illegal set_wifi sta_ip_addr: %s", s);
-				return false;
-			}
-		}
-		else
-		{
-			for (i = 0; i < 4; i++)
-				new_net_info->sta_ip_addr[i] = net_infoP->sta_ip_addr[i];
-		}
-
-		if (cJSON_HasObjectItem(cmd_args, "sta_netmask"))
-		{
-			s = cJSON_GetObjectItem(cmd_args, "sta_netmask")->valuestring;
-			if (json_ip_string_to_array(new_net_info->sta_netmask, s))
-			{
-				item_count++;
-			}
-			else
-			{
-				ESP_LOGE(TAG, "Illegal set_wifi sta_netmask: %s", s);
-				return false;
-			}
-		}
-		else
-		{
-			for (i = 0; i < 4; i++)
-				new_net_info->sta_netmask[i] = net_infoP->sta_netmask[i];
-		}
-
-		// Just copy existing address over
-		for (i = 0; i < 4; i++)
-			new_net_info->cur_ip_addr[i] = net_infoP->cur_ip_addr[i];
-
-		return (item_count > 0);
+		new_onboarding_details_info->update_required = aws_ip_update_required || port_number_update_required || serial_number_update_required;
+		return !new_onboarding_details_info->update_required;
 	}
 
 	return false;

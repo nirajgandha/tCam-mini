@@ -66,6 +66,7 @@ typedef struct
 	char *serial_number;
 	char *aws_ip_address;
 	int port_number;
+	bool update_required;
 } onboarding_details_t;
 
 //

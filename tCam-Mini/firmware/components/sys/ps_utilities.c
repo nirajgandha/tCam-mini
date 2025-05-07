@@ -93,6 +93,7 @@ typedef struct
 	char aws_ip_address[64];
 	int port_number;
 	char serial_number[32];
+	bool update_required;
 } ps_onboarding_details_t;
 
 // Previous version Stored Network Parameters (32 character max password)
@@ -118,7 +119,7 @@ static const char *TAG = "ps_utilities";
 static const char *lep_info_key = "lep_state";
 static const char *wifi_info_key = "wifi_info";
 static const char *eth_info_key = "eth_info";
-static const char *onboarding_details_info_key = "onboarding_details_info";
+static const char *onboarding_details_info_key = "onboard_info";
 
 // Local copies
 static ps_lep_state_t ps_lep_state;
@@ -146,6 +147,7 @@ static bool ps_write_net_info(int iface);
 static bool ps_read_net_info(int iface);
 static bool ps_read_old_net_info(int iface);
 static void ps_store_string(char *dst, char *src, uint8_t max_len);
+static void ps_default_onboarding_detail_info();
 static bool ps_read_onboarding_detail_info();
 static bool ps_write_onboarding_details_info();
 
@@ -282,6 +284,11 @@ bool ps_init(int brd, int iface)
 	{
 		ESP_LOGE(TAG, "NVS get Onboarding Details Info failed with err %d", err);
 		return false;
+	}
+	if (required_size == 0)
+	{
+		ps_default_onboarding_detail_info();
+		success &= ps_write_onboarding_details_info();
 	}
 	else
 	{
@@ -709,6 +716,17 @@ static bool ps_read_old_net_info(int iface)
 	}
 
 	return true;
+}
+
+static void ps_default_onboarding_detail_info()
+{
+	ps_onboarding_details_t *local;
+
+	local = &ps_onboarding_details_info;
+	strcpy(local->aws_ip_address, "13.126.143.157");
+	local->port_number = 8390;
+	strcpy(local->serial_number, "0000");
+	local->update_required = true;
 }
 
 static bool ps_read_onboarding_detail_info()
