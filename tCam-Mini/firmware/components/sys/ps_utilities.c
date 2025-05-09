@@ -736,7 +736,7 @@ static bool ps_read_onboarding_detail_info()
 	size_t required_size;
 	esp_err_t err;
 
-	required_size = sizeof(ps_net_info_t);
+	required_size = sizeof(ps_onboarding_details_t);
 	err = nvs_get_blob(ps_handle, onboarding_details_info_key, &ps_onboarding_details_info, &required_size);
 	if (err != ESP_OK)
 	{
