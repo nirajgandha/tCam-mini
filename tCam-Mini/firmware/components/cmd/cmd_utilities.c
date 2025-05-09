@@ -23,24 +23,25 @@
  */
 
 #include "cmd_utilities.h"
+
+#include "aws_cmd_task.h"
 #include "cci.h"
-#include "rsp_task.h"
+#include "esp_log.h"
+#include "esp_system.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "json_utilities.h"
 #include "lepton_utilities.h"
+#include "mdns.h"
 #include "net_utilities.h"
 #include "ps_utilities.h"
+#include "rsp_task.h"
+#include "sif_utilities.h"
 #include "sys_utilities.h"
+#include "system_config.h"
 #include "time_utilities.h"
 #include "upd_utilities.h"
-#include "system_config.h"
-#include "esp_system.h"
-#include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/semphr.h"
-#include "mdns.h"
-#include "aws_cmd_task.h"
-#include "sif_utilities.h"
 
 //
 // CMD Utilities private constants
@@ -80,570 +81,496 @@ static int in_buffer(char c);
 /**
  * Initialize variables associated with receiving and processing commands
  */
-void init_command_processor()
-{
-	rx_circular_push_index = 0;
-	rx_circular_pop_index = 0;
+void init_command_processor() {
+  rx_circular_push_index = 0;
+  rx_circular_pop_index = 0;
 }
 
 /**
  * Push received data into our circular buffer
  */
-void push_rx_data(char *data, int len, const char *fromwhere)
-{
-	ESP_LOGI(TAG, " %s sent Command: %s", fromwhere, data);
-	// Push the received data into the circular buffer
-	while (len-- > 0)
-	{
-		rx_circular_buffer[rx_circular_push_index] = *data++;
-		if (++rx_circular_push_index >= JSON_MAX_CMD_TEXT_LEN)
-			rx_circular_push_index = 0;
-	}
+void push_rx_data(char *data, int len, const char *fromwhere) {
+  ESP_LOGI(TAG, " %s sent Command: %s", fromwhere, data);
+  // Push the received data into the circular buffer
+  while (len-- > 0) {
+    rx_circular_buffer[rx_circular_push_index] = *data++;
+    if (++rx_circular_push_index >= JSON_MAX_CMD_TEXT_LEN)
+      rx_circular_push_index = 0;
+  }
 }
 
 /**
  * See if we can find a complete json string to process
  */
-bool process_rx_data()
-{
-	bool valid_string = false;
-	int begin, end, i;
+bool process_rx_data() {
+  bool valid_string = false;
+  int begin, end, i;
 
-	// See if we can find an entire json string
-	end = in_buffer(CMD_JSON_STRING_STOP);
-	if (end >= 0)
-	{
-		// Found end of packet, look for beginning
-		begin = in_buffer(CMD_JSON_STRING_START);
-		if (begin >= 0)
-		{
-			// Found packet - copy it, without delimiters to json_cmd_string
-			//
-			// Skip past start
-			while (rx_circular_pop_index != begin)
-			{
-				if (++rx_circular_pop_index >= JSON_MAX_CMD_TEXT_LEN)
-					rx_circular_pop_index = 0;
-			}
+  // See if we can find an entire json string
+  end = in_buffer(CMD_JSON_STRING_STOP);
+  if (end >= 0) {
+    // Found end of packet, look for beginning
+    begin = in_buffer(CMD_JSON_STRING_START);
+    if (begin >= 0) {
+      // Found packet - copy it, without delimiters to json_cmd_string
+      //
+      // Skip past start
+      while (rx_circular_pop_index != begin) {
+        if (++rx_circular_pop_index >= JSON_MAX_CMD_TEXT_LEN)
+          rx_circular_pop_index = 0;
+      }
 
-			// Copy up to end
-			i = 0;
-			while ((rx_circular_pop_index != end) && (i < JSON_MAX_CMD_TEXT_LEN))
-			{
-				if (i < JSON_MAX_CMD_TEXT_LEN)
-				{
-					json_cmd_string[i] = rx_circular_buffer[rx_circular_pop_index];
-				}
-				i++;
-				if (++rx_circular_pop_index >= JSON_MAX_CMD_TEXT_LEN)
-					rx_circular_pop_index = 0;
-			}
-			json_cmd_string[i] = 0; // Make sure this is a null-terminated string
+      // Copy up to end
+      i = 0;
+      while ((rx_circular_pop_index != end) && (i < JSON_MAX_CMD_TEXT_LEN)) {
+        if (i < JSON_MAX_CMD_TEXT_LEN) {
+          json_cmd_string[i] = rx_circular_buffer[rx_circular_pop_index];
+        }
+        i++;
+        if (++rx_circular_pop_index >= JSON_MAX_CMD_TEXT_LEN)
+          rx_circular_pop_index = 0;
+      }
+      json_cmd_string[i] = 0;  // Make sure this is a null-terminated string
 
-			// Skip past end
-			if (++rx_circular_pop_index >= JSON_MAX_CMD_TEXT_LEN)
-				rx_circular_pop_index = 0;
+      // Skip past end
+      if (++rx_circular_pop_index >= JSON_MAX_CMD_TEXT_LEN)
+        rx_circular_pop_index = 0;
 
-			if (i < JSON_MAX_CMD_TEXT_LEN + 1)
-			{
-				// Process json command string
-				process_rx_packet();
-				valid_string = true;
-			}
-		}
-		else
-		{
-			// Unexpected end without start - skip it
-			while (rx_circular_pop_index != end)
-			{
-				if (++rx_circular_pop_index >= JSON_MAX_CMD_TEXT_LEN)
-					rx_circular_pop_index = 0;
-			}
-		}
-	}
+      if (i < JSON_MAX_CMD_TEXT_LEN + 1) {
+        // Process json command string
+        process_rx_packet();
+        valid_string = true;
+      }
+    } else {
+      // Unexpected end without start - skip it
+      while (rx_circular_pop_index != end) {
+        if (++rx_circular_pop_index >= JSON_MAX_CMD_TEXT_LEN)
+          rx_circular_pop_index = 0;
+      }
+    }
+  }
 
-	return valid_string;
+  return valid_string;
 }
 
 //
 // CMD Task internal functions
 //
-static void process_rx_packet()
-{
-	char error_msg[20] = "aws not connected";
-	cJSON *json_obj;
-	cJSON *cmd_args;
-	int cmd;
-	int cmd_success = -1; // -1: response sent (as ACK), 0: determined elsewhere, 1: success,
-						  //  2: fail, 3: unimplemented, 4: unknown cmd, 5: unknown json, 6: bad json
-	char cmd_st_buf[80];
-	static char *response_buffer;
-	static uint32_t response_length;
+static void process_rx_packet() {
+  char error_msg[20] = "aws not connected";
+  cJSON *json_obj;
+  cJSON *cmd_args;
+  int cmd;
+  int cmd_success =
+      -1;  // -1: response sent (as ACK), 0: determined elsewhere, 1: success,
+           //  2: fail, 3: unimplemented, 4: unknown cmd, 5: unknown json, 6:
+           //  bad json
+  char cmd_st_buf[80];
+  char message[300];
+  static char *response_buffer;
+  static uint32_t response_length;
 
-	// Create a json object to parse
-	json_obj = json_get_cmd_object(json_cmd_string);
+  // Create a json object to parse
+  json_obj = json_get_cmd_object(json_cmd_string);
 #ifdef DEBUG_CMD
-	ESP_LOGI(TAG, "RX %s", json_cmd_string);
+  ESP_LOGI(TAG, "RX %s", json_cmd_string);
 #endif
-	if (json_obj != NULL)
-	{
-		if (json_parse_cmd(json_obj, &cmd, &cmd_args))
-		{
+  if (json_obj != NULL) {
+    if (json_parse_cmd(json_obj, &cmd, &cmd_args)) {
 #ifdef DEBUG_CMD
-			ESP_LOGI(TAG, "cmd %s", json_get_cmd_name(cmd));
+      ESP_LOGI(TAG, "cmd %s", json_get_cmd_name(cmd));
 #endif
-			switch (cmd)
-			{
-			case CMD_GET_STATUS:
-				response_buffer = json_get_status(&response_length);
-				if (response_length != 0)
-				{
-					push_response(response_buffer, response_length);
-				}
-				else
-				{
-					cmd_success = 2;
-				}
-				break;
+      switch (cmd) {
+        case CMD_GET_STATUS:
+          response_buffer = json_get_status(&response_length);
+          if (response_length != 0) {
+            push_response(response_buffer, response_length);
+          } else {
+            cmd_success = 2;
+          }
+          break;
 
-			case CMD_GET_IMAGE:
-				if (!check_if_aws_fully_connected())
-				{
-					cmd_success = 2;
-					sif_send(error_msg, sizeof(error_msg));
-				}
-				else
-				{
-					xTaskNotify(task_handle_rsp, RSP_NOTIFY_CMD_GET_IMG_MASK, eSetBits);
-				}
-				break;
+        case CMD_GET_IMAGE:
+          if (!check_if_aws_fully_connected()) {
+            cmd_success = 2;
+            sif_send(error_msg, sizeof(error_msg));
+          } else {
+            xTaskNotify(task_handle_rsp, RSP_NOTIFY_CMD_GET_IMG_MASK, eSetBits);
+          }
+          break;
 
-			case CMD_SET_TIME:
-				if (process_set_time(cmd_args))
-				{
-					cmd_success = 1;
-				}
-				else
-				{
-					cmd_success = 2;
-				}
-				break;
+        case CMD_SET_TIME:
+          if (process_set_time(cmd_args)) {
+            cmd_success = 1;
+          } else {
+            cmd_success = 2;
+          }
+          break;
 
-			case CMD_GET_WIFI:
-				response_buffer = json_get_wifi(&response_length);
-				if (response_length != 0)
-				{
-					push_response(response_buffer, response_length);
-				}
-				else
-				{
-					cmd_success = 2;
-				}
-				break;
+        case CMD_GET_WIFI:
+          response_buffer = json_get_wifi(&response_length);
+          if (response_length != 0) {
+            push_response(response_buffer, response_length);
+          } else {
+            cmd_success = 2;
+          }
+          break;
 
-			case CMD_SET_WIFI:
-				if (process_set_wifi(cmd_args))
-				{
-					if ((*net_reinit)())
-					{
-						cmd_success = 1;
-					}
-					else
-					{
-						ESP_LOGE(TAG, "Could not restart network with the new configuration");
-						rsp_set_cam_info_msg(RSP_INFO_CMD_NACK, "Could not restart network with the new configuration");
-					}
-				}
-				else
-				{
-					cmd_success = 2;
-				}
-				break;
+        case CMD_SET_WIFI:
+          if (process_set_wifi(cmd_args)) {
+            if ((*net_reinit)()) {
+              cmd_success = 1;
+            } else {
+              ESP_LOGE(TAG,
+                       "Could not restart network with the new configuration");
+              rsp_set_cam_info_msg(
+                  RSP_INFO_CMD_NACK,
+                  "Could not restart network with the new configuration");
+            }
+          } else {
+            cmd_success = 2;
+          }
+          break;
 
-			case CMD_SET_ONBOARD_DETAILS_FROM_ESP32:
-				if (process_set_onboarding_details(cmd_args))
-				{
-					if ((*net_reinit)())
-					{
-						cmd_success = 1;
-					}
-					else
-					{
-						ESP_LOGE(TAG, "Could not restart board with the new configuration");
-						rsp_set_cam_info_msg(RSP_INFO_CMD_NACK, "Could not restart network with the new configuration");
-					}
-				}
-				else
-				{
-					cmd_success = 2;
-				}
-				break;
+        case CMD_SET_ONBOARD_DETAILS_FROM_ESP32:
+          ESP_LOGE(TAG, "set_onboarding_details cmd received");
+          if (process_set_onboarding_details(cmd_args)) {
+            ESP_LOGE(
+                TAG,
+                "rebooting system to start with latest onboarding details");
+            esp_restart();
+          } else {
+            cmd_success = 2;
+          }
+          break;
+        case CMD_GET_ONBOARD_DETAILS_FROM_ESP32:
+          memset(message, 0, sizeof(message));
+          ESP_LOGW(TAG,
+                   "requires update in onboarding details, so sending "
+                   "set_onboarding_details cmd");
+          snprintf(message, sizeof(message),
+                   "%c{\"cmd\":\"%s\", "
+                   "\"args\":{\"aws_ip_address\":\"13.126.143.157\",\"port_"
+                   "number\":8390,\"serial_number\":\"4390\"}}%c",
+                   CMD_JSON_STRING_START, CMD_SET_ONBOARD_DETAILS_FROM_ESP32_S,
+                   CMD_JSON_STRING_STOP);
+          sif_send(message, sizeof(message));
+          break;
 
-			case CMD_GET_CONFIG:
-				response_buffer = json_get_config(&response_length);
-				if (response_length != 0)
-				{
-					push_response(response_buffer, response_length);
-				}
-				else
-				{
-					cmd_success = 2;
-				}
-				break;
+        case CMD_GET_CONFIG:
+          response_buffer = json_get_config(&response_length);
+          if (response_length != 0) {
+            push_response(response_buffer, response_length);
+          } else {
+            cmd_success = 2;
+          }
+          break;
 
-			case CMD_SET_CONFIG:
-				if (process_set_config(cmd_args))
-				{
-					cmd_success = 1;
-				}
-				else
-				{
-					cmd_success = 2;
-				}
-				break;
+        case CMD_SET_CONFIG:
+          if (process_set_config(cmd_args)) {
+            cmd_success = 1;
+          } else {
+            cmd_success = 2;
+          }
+          break;
 
-			case CMD_SET_SPOT:
-				if (process_set_spotmeter(cmd_args))
-				{
-					cmd_success = 1;
-				}
-				else
-				{
-					cmd_success = 2;
-				}
-				break;
+        case CMD_SET_SPOT:
+          if (process_set_spotmeter(cmd_args)) {
+            cmd_success = 1;
+          } else {
+            cmd_success = 2;
+          }
+          break;
 
-			case CMD_STREAM_ON:
-				if (!check_if_aws_fully_connected())
-				{
-					cmd_success = 2;
-					sif_send(error_msg, sizeof(error_msg));
-				}
-				else if (process_stream_on(cmd_args))
-				{
-					cmd_success = 1;
-				}
-				else
-				{
-					cmd_success = 2;
-				}
-				break;
+        case CMD_STREAM_ON:
+          if (!check_if_aws_fully_connected()) {
+            cmd_success = 2;
+            sif_send(error_msg, sizeof(error_msg));
+          } else if (process_stream_on(cmd_args)) {
+            cmd_success = 1;
+          } else {
+            cmd_success = 2;
+          }
+          break;
 
-			case CMD_STREAM_OFF:
-				if (!check_if_aws_fully_connected())
-				{
-					cmd_success = 2;
-					sif_send(error_msg, sizeof(error_msg));
-				}
-				else
-				{
-					xTaskNotify(task_handle_rsp, RSP_NOTIFY_CMD_STREAM_OFF_MASK, eSetBits);
-					cmd_success = 1;
-				}
-				break;
+        case CMD_STREAM_OFF:
+          if (!check_if_aws_fully_connected()) {
+            cmd_success = 2;
+            sif_send(error_msg, sizeof(error_msg));
+          } else {
+            xTaskNotify(task_handle_rsp, RSP_NOTIFY_CMD_STREAM_OFF_MASK,
+                        eSetBits);
+            cmd_success = 1;
+          }
+          break;
 
-			case CMD_RUN_FFC:
-				cci_run_ffc();
-				cmd_success = 1;
-				break;
+        case CMD_RUN_FFC:
+          cci_run_ffc();
+          cmd_success = 1;
+          break;
 
-			case CMD_GET_LEP_CCI:
-				if (!process_get_lep_cci(cmd_args))
-				{
-					cmd_success = 2;
-				}
-				break;
+        case CMD_GET_LEP_CCI:
+          if (!process_get_lep_cci(cmd_args)) {
+            cmd_success = 2;
+          }
+          break;
 
-			case CMD_SET_LEP_CCI:
-				if (!process_set_lep_cci(cmd_args))
-				{
-					cmd_success = 2;
-				}
-				break;
+        case CMD_SET_LEP_CCI:
+          if (!process_set_lep_cci(cmd_args)) {
+            cmd_success = 2;
+          }
+          break;
 
-			case CMD_TAKE_PIC:
-			case CMD_RECORD_ON:
-			case CMD_RECORD_OFF:
-			case CMD_POWEROFF:
-			case CMD_GET_FS_LIST:
-			case CMD_GET_FS_FILE:
-			case CMD_DEL_FS_OBJ:
-			case CMD_DUMP_SCREEN:
-				cmd_success = 3;
-				break;
+        case CMD_TAKE_PIC:
+        case CMD_RECORD_ON:
+        case CMD_RECORD_OFF:
+        case CMD_POWEROFF:
+        case CMD_GET_FS_LIST:
+        case CMD_GET_FS_FILE:
+        case CMD_DEL_FS_OBJ:
+        case CMD_DUMP_SCREEN:
+          cmd_success = 3;
+          break;
 
-			default:
-				cmd_success = 4;
-			}
-		}
-		else
-		{
-			cmd_success = 5;
-		}
+        default:
+          cmd_success = 4;
+      }
+    } else {
+      cmd_success = 5;
+    }
 
-		json_free_cmd(json_obj);
-	}
-	else
-	{
-		cmd_success = 6;
-	}
+    json_free_cmd(json_obj);
+  } else {
+    cmd_success = 6;
+  }
 
-	// Determine command response to send
-	switch (cmd_success)
-	{
-	// case -1 does not send message (command response is message)
-	// case 0 "determined later" does not send a message at this point
-	case 1:
-		sprintf(cmd_st_buf, "%s success", json_get_cmd_name(cmd));
-		rsp_set_cam_info_msg(RSP_INFO_CMD_ACK, cmd_st_buf);
-		break;
-	case 2:
-		sprintf(cmd_st_buf, "%s failed", json_get_cmd_name(cmd));
-		rsp_set_cam_info_msg(RSP_INFO_CMD_NACK, cmd_st_buf);
-		break;
-	case 3:
-		sprintf(cmd_st_buf, "Unsupported command in json string");
-		rsp_set_cam_info_msg(RSP_INFO_CMD_UNIMPL, cmd_st_buf);
-		break;
-	case 4:
-		sprintf(cmd_st_buf, "Unknown command in json string");
-		rsp_set_cam_info_msg(RSP_INFO_CMD_UNIMPL, cmd_st_buf);
-		break;
-	case 5:
-		sprintf(cmd_st_buf, "Json string wasn't command");
-		rsp_set_cam_info_msg(RSP_INFO_CMD_UNIMPL, cmd_st_buf);
-		break;
-	case 6:
-		sprintf(cmd_st_buf, "Couldn't convert json string");
-		rsp_set_cam_info_msg(RSP_INFO_CMD_BAD, cmd_st_buf);
-		break;
-	}
+  // Determine command response to send
+  switch (cmd_success) {
+    // case -1 does not send message (command response is message)
+    // case 0 "determined later" does not send a message at this point
+    case 1:
+      sprintf(cmd_st_buf, "%s success", json_get_cmd_name(cmd));
+      rsp_set_cam_info_msg(RSP_INFO_CMD_ACK, cmd_st_buf);
+      break;
+    case 2:
+      sprintf(cmd_st_buf, "%s failed", json_get_cmd_name(cmd));
+      rsp_set_cam_info_msg(RSP_INFO_CMD_NACK, cmd_st_buf);
+      break;
+    case 3:
+      sprintf(cmd_st_buf, "Unsupported command in json string");
+      rsp_set_cam_info_msg(RSP_INFO_CMD_UNIMPL, cmd_st_buf);
+      break;
+    case 4:
+      sprintf(cmd_st_buf, "Unknown command in json string");
+      rsp_set_cam_info_msg(RSP_INFO_CMD_UNIMPL, cmd_st_buf);
+      break;
+    case 5:
+      sprintf(cmd_st_buf, "Json string wasn't command");
+      rsp_set_cam_info_msg(RSP_INFO_CMD_UNIMPL, cmd_st_buf);
+      break;
+    case 6:
+      sprintf(cmd_st_buf, "Couldn't convert json string");
+      rsp_set_cam_info_msg(RSP_INFO_CMD_BAD, cmd_st_buf);
+      break;
+  }
 }
 
 /**
  * Push a response into the cmd_task_response_buffer if there is room, otherwise
  * just drop it (up to the external host to make sure this doesn't happen)
  */
-static void push_response(char *buf, uint32_t len)
-{
-	int i;
+static void push_response(char *buf, uint32_t len) {
+  int i;
 
-	// Atomically load cmd_task_response_buffer
-	xSemaphoreTake(sys_cmd_response_buffer.mutex, portMAX_DELAY);
+  // Atomically load cmd_task_response_buffer
+  xSemaphoreTake(sys_cmd_response_buffer.mutex, portMAX_DELAY);
 
-	// Only load if there's room for this response
-	if (len <= (CMD_RESPONSE_BUFFER_LEN - sys_cmd_response_buffer.length))
-	{
-		for (i = 0; i < len; i++)
-		{
-			// Push data
-			*sys_cmd_response_buffer.pushP = *(buf + i);
+  // Only load if there's room for this response
+  if (len <= (CMD_RESPONSE_BUFFER_LEN - sys_cmd_response_buffer.length)) {
+    for (i = 0; i < len; i++) {
+      // Push data
+      *sys_cmd_response_buffer.pushP = *(buf + i);
 
-			// Increment push pointer
-			if (++sys_cmd_response_buffer.pushP >= (sys_cmd_response_buffer.bufferP + CMD_RESPONSE_BUFFER_LEN))
-			{
-				sys_cmd_response_buffer.pushP = sys_cmd_response_buffer.bufferP;
-			}
-		}
+      // Increment push pointer
+      if (++sys_cmd_response_buffer.pushP >=
+          (sys_cmd_response_buffer.bufferP + CMD_RESPONSE_BUFFER_LEN)) {
+        sys_cmd_response_buffer.pushP = sys_cmd_response_buffer.bufferP;
+      }
+    }
 
-		sys_cmd_response_buffer.length += len;
-	}
+    sys_cmd_response_buffer.length += len;
+  }
 
-	xSemaphoreGive(sys_cmd_response_buffer.mutex);
+  xSemaphoreGive(sys_cmd_response_buffer.mutex);
 }
 
 /**
  * Routines to process commands
  */
-static bool process_set_config(cJSON *cmd_args)
-{
-	json_config_t new_config_st;
+static bool process_set_config(cJSON *cmd_args) {
+  json_config_t new_config_st;
 
-	if (json_parse_set_config(cmd_args, &new_config_st))
-	{
-		// Look for changed items that require updating other modules
-		if (new_config_st.agc_set_enabled != lep_st.agc_set_enabled)
-		{
-			lepton_agc(new_config_st.agc_set_enabled);
-			lep_st.agc_set_enabled = new_config_st.agc_set_enabled;
-		}
-		if (new_config_st.emissivity != lep_st.emissivity)
-		{
-			lepton_emissivity(new_config_st.emissivity);
-			lep_st.emissivity = new_config_st.emissivity;
-		}
-		if (new_config_st.gain_mode != lep_st.gain_mode)
-		{
-			lepton_gain_mode(new_config_st.gain_mode);
-			lep_st.gain_mode = new_config_st.gain_mode;
-		}
-		ps_set_lep_state(&lep_st);
-		return true;
-	}
+  if (json_parse_set_config(cmd_args, &new_config_st)) {
+    // Look for changed items that require updating other modules
+    if (new_config_st.agc_set_enabled != lep_st.agc_set_enabled) {
+      lepton_agc(new_config_st.agc_set_enabled);
+      lep_st.agc_set_enabled = new_config_st.agc_set_enabled;
+    }
+    if (new_config_st.emissivity != lep_st.emissivity) {
+      lepton_emissivity(new_config_st.emissivity);
+      lep_st.emissivity = new_config_st.emissivity;
+    }
+    if (new_config_st.gain_mode != lep_st.gain_mode) {
+      lepton_gain_mode(new_config_st.gain_mode);
+      lep_st.gain_mode = new_config_st.gain_mode;
+    }
+    ps_set_lep_state(&lep_st);
+    return true;
+  }
 
-	return false;
+  return false;
 }
 
-static bool process_set_spotmeter(cJSON *cmd_args)
-{
-	uint16_t r1, c1, r2, c2;
+static bool process_set_spotmeter(cJSON *cmd_args) {
+  uint16_t r1, c1, r2, c2;
 
-	if (json_parse_set_spotmeter(cmd_args, &r1, &c1, &r2, &c2))
-	{
-		lepton_spotmeter(r1, c1, r2, c2);
-		return true;
-	}
+  if (json_parse_set_spotmeter(cmd_args, &r1, &c1, &r2, &c2)) {
+    lepton_spotmeter(r1, c1, r2, c2);
+    return true;
+  }
 
-	return false;
+  return false;
 }
 
-static bool process_stream_on(cJSON *cmd_args)
-{
-	uint32_t delay_ms, num_frames;
+static bool process_stream_on(cJSON *cmd_args) {
+  uint32_t delay_ms, num_frames;
 
-	if (json_parse_stream_on(cmd_args, &delay_ms, &num_frames))
-	{
-		rsp_set_stream_parameters(delay_ms, num_frames);
-		xTaskNotify(task_handle_rsp, RSP_NOTIFY_CMD_STREAM_ON_MASK, eSetBits);
-		return true;
-	}
+  if (json_parse_stream_on(cmd_args, &delay_ms, &num_frames)) {
+    rsp_set_stream_parameters(delay_ms, num_frames);
+    xTaskNotify(task_handle_rsp, RSP_NOTIFY_CMD_STREAM_ON_MASK, eSetBits);
+    return true;
+  }
 
-	return false;
+  return false;
 }
 
-static bool process_set_time(cJSON *cmd_args)
-{
-	tmElements_t te;
+static bool process_set_time(cJSON *cmd_args) {
+  tmElements_t te;
 
-	if (json_parse_set_time(cmd_args, &te))
-	{
-		time_set(te);
-		return true;
-	}
+  if (json_parse_set_time(cmd_args, &te)) {
+    time_set(te);
+    return true;
+  }
 
-	return false;
+  return false;
 }
 
-static bool process_set_wifi(cJSON *cmd_args)
-{
-	char ap_ssid[PS_SSID_MAX_LEN + 1];
-	char sta_ssid[PS_SSID_MAX_LEN + 1];
-	char ap_pw[PS_PW_MAX_LEN + 1];
-	char sta_pw[PS_PW_MAX_LEN + 1];
-	esp_err_t ret;
-	net_info_t new_wifi_info;
+static bool process_set_wifi(cJSON *cmd_args) {
+  char ap_ssid[PS_SSID_MAX_LEN + 1];
+  char sta_ssid[PS_SSID_MAX_LEN + 1];
+  char ap_pw[PS_PW_MAX_LEN + 1];
+  char sta_pw[PS_PW_MAX_LEN + 1];
+  esp_err_t ret;
+  net_info_t new_wifi_info;
 
-	new_wifi_info.ap_ssid = ap_ssid;
-	new_wifi_info.sta_ssid = sta_ssid;
-	new_wifi_info.ap_pw = ap_pw;
-	new_wifi_info.sta_pw = sta_pw;
+  new_wifi_info.ap_ssid = ap_ssid;
+  new_wifi_info.sta_ssid = sta_ssid;
+  new_wifi_info.ap_pw = ap_pw;
+  new_wifi_info.sta_pw = sta_pw;
 
-	if (json_parse_set_wifi(cmd_args, &new_wifi_info))
-	{
-		// Update the mDNS server if we got a new name (ap_ssid)
-		if (ps_has_new_cam_name(&new_wifi_info))
-		{
-			ret = mdns_hostname_set(ap_ssid);
-			if (ret != ESP_OK)
-			{
-				ESP_LOGE(TAG, "Could not set new mDNS hostname %s (%d)", ap_ssid, ret);
-			}
-		}
+  if (json_parse_set_wifi(cmd_args, &new_wifi_info)) {
+    // Update the mDNS server if we got a new name (ap_ssid)
+    if (ps_has_new_cam_name(&new_wifi_info)) {
+      ret = mdns_hostname_set(ap_ssid);
+      if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Could not set new mDNS hostname %s (%d)", ap_ssid, ret);
+      }
+    }
 
-		// Then update persistent storage
-		ps_set_net_info(&new_wifi_info);
-		return true;
-	}
+    // Then update persistent storage
+    ps_set_net_info(&new_wifi_info);
+    return true;
+  }
 
-	return false;
+  return false;
 }
 
-static bool process_set_onboarding_details(cJSON *cmd_args)
-{
-	char aws_ip_adress[PS_IP_ADDRESS_MAX_LENGTH + 1];
-	char serial_number[PS_PW_MAX_LEN + 1];
+static bool process_set_onboarding_details(cJSON *cmd_args) {
+  ESP_LOGE(TAG, "process_set_onboarding_details called");
+  char aws_ip_adress[PS_IP_ADDRESS_MAX_LENGTH + 1];
+  char serial_number[PS_PW_MAX_LEN + 1];
 
-	esp_err_t ret;
-	onboarding_details_t new_onboarding_details_info;
+  esp_err_t ret;
+  onboarding_details_t new_onboarding_details_info;
 
-	new_onboarding_details_info.aws_ip_address = aws_ip_adress;
-	new_onboarding_details_info.serial_number = serial_number;
-	if (json_parse_set_onboard_details(cmd_args, &new_onboarding_details_info))
-	{
-		ps_set_onboarding_details_info(&new_onboarding_details_info);
-		return true;
-	}
-	return false;
+  new_onboarding_details_info.aws_ip_address = aws_ip_adress;
+  new_onboarding_details_info.serial_number = serial_number;
+  if (json_parse_set_onboard_details(cmd_args, &new_onboarding_details_info)) {
+    ps_set_onboarding_details_info(&new_onboarding_details_info);
+    return true;
+  }
+  return false;
 }
 
-static bool process_get_lep_cci(cJSON *cmd_args)
-{
-	char *response_buffer;
-	int len;
-	uint16_t cmd;
-	uint16_t status;
-	uint16_t *cci_buf;
-	uint32_t response_length;
+static bool process_get_lep_cci(cJSON *cmd_args) {
+  char *response_buffer;
+  int len;
+  uint16_t cmd;
+  uint16_t status;
+  uint16_t *cci_buf;
+  uint32_t response_length;
 
-	if (json_parse_get_lep_cci(cmd_args, &cmd, &len, &cci_buf))
-	{
-		cci_get_reg(cmd, len, cci_buf);
-		if (cci_command_success(&status))
-		{
-			response_buffer = json_get_cci_response(cmd, len, status, cci_buf, &response_length);
-			push_response(response_buffer, response_length);
-			return true;
-		}
-	}
+  if (json_parse_get_lep_cci(cmd_args, &cmd, &len, &cci_buf)) {
+    cci_get_reg(cmd, len, cci_buf);
+    if (cci_command_success(&status)) {
+      response_buffer =
+          json_get_cci_response(cmd, len, status, cci_buf, &response_length);
+      push_response(response_buffer, response_length);
+      return true;
+    }
+  }
 
-	return false;
+  return false;
 }
 
-static bool process_set_lep_cci(cJSON *cmd_args)
-{
-	char *response_buffer;
-	int len;
-	uint16_t cmd;
-	uint16_t status;
-	uint16_t *cci_buf;
-	uint32_t response_length;
+static bool process_set_lep_cci(cJSON *cmd_args) {
+  char *response_buffer;
+  int len;
+  uint16_t cmd;
+  uint16_t status;
+  uint16_t *cci_buf;
+  uint32_t response_length;
 
-	if (json_parse_set_lep_cci(cmd_args, &cmd, &len, &cci_buf))
-	{
-		cci_set_reg(cmd, len, cci_buf);
+  if (json_parse_set_lep_cci(cmd_args, &cmd, &len, &cci_buf)) {
+    cci_set_reg(cmd, len, cci_buf);
 
-		if (cci_command_success(&status))
-		{
-			// Just return status by setting len = 0
-			response_buffer = json_get_cci_response(cmd, 0, status, cci_buf, &response_length);
-			push_response(response_buffer, response_length);
-			return true;
-		}
-	}
+    if (cci_command_success(&status)) {
+      // Just return status by setting len = 0
+      response_buffer =
+          json_get_cci_response(cmd, 0, status, cci_buf, &response_length);
+      push_response(response_buffer, response_length);
+      return true;
+    }
+  }
 
-	return false;
+  return false;
 }
 
 /**
- * Look for c in the rx_circular_buffer and return its location if found, -1 otherwise
+ * Look for c in the rx_circular_buffer and return its location if found, -1
+ * otherwise
  */
-static int in_buffer(char c)
-{
-	int i;
+static int in_buffer(char c) {
+  int i;
 
-	i = rx_circular_pop_index;
-	while (i != rx_circular_push_index)
-	{
-		if (c == rx_circular_buffer[i])
-		{
-			return i;
-		}
-		else
-		{
-			if (i++ >= JSON_MAX_CMD_TEXT_LEN)
-				i = 0;
-		}
-	}
+  i = rx_circular_pop_index;
+  while (i != rx_circular_push_index) {
+    if (c == rx_circular_buffer[i]) {
+      return i;
+    } else {
+      if (i++ >= JSON_MAX_CMD_TEXT_LEN) i = 0;
+    }
+  }
 
-	return -1;
+  return -1;
 }

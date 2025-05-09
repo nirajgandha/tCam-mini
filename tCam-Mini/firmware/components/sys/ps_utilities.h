@@ -5,9 +5,10 @@
  * routines to it.
  *
  * NOTE:
- *  1. It is assumed that only one task will access persistent storage at a time.
- *  2. Some internal naming is reflective of the fact that this module existed first
- *     for a Wifi-only system with ethernet support added later.
+ *  1. It is assumed that only one task will access persistent storage at a
+ * time.
+ *  2. Some internal naming is reflective of the fact that this module existed
+ * first for a Wifi-only system with ethernet support added later.
  *
  * Copyright 2020-2022 Dan Julio
  *
@@ -30,10 +31,12 @@
 #ifndef PS_UTILITIES_H
 #define PS_UTILITIES_H
 
-#include "net_utilities.h"
-#include "sys_utilities.h"
 #include <stdbool.h>
 #include <stdint.h>
+
+#include "net_utilities.h"
+#include "onboarding_utilities.h"
+#include "sys_utilities.h"
 
 //
 // PS Utilities Constants
@@ -47,9 +50,10 @@
 #define PS_SSID_MAX_LEN 32
 #define PS_PW_MAX_LEN 63
 #define PS_OLD_PW_MAX_LEN 32
-#define PS_IP_ADDRESS_MAX_LENGTH 18
+#define PS_IP_ADDRESS_MAX_LENGTH 64
 #define PS_PORT_MAX_LENGTH 65535
 
+bool ps_init_success_status;
 //
 // PS Utilities API
 //
@@ -61,7 +65,10 @@ void ps_set_net_info(const net_info_t *info);
 bool ps_reinit_net();
 bool ps_has_new_cam_name(const net_info_t *info);
 char ps_nibble_to_ascii(uint8_t n);
-void ps_get_onboarding_details_info(onboarding_details_t *onboarding_details_info);
-void ps_set_onboarding_details_info(const onboarding_details_t *onboarding_details_info);
+void ps_get_onboarding_details_info(
+    onboarding_details_t *onboarding_details_info);
+void ps_set_onboarding_details_info(
+    const onboarding_details_t *onboarding_details_info);
+bool is_ps_init_successfully();
 
 #endif /* PS_UTILITIES_H */

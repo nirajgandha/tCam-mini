@@ -46,28 +46,20 @@
 //
 // Network Utilities Data structures
 //   Used for both interfaces although only ap_ssid (camera name), flags,
-//   sta_ip_addr/netmask and cur_ip_addr are used when the ethernet interface is active
+//   sta_ip_addr/netmask and cur_ip_addr are used when the ethernet interface is
+//   active
 //
-typedef struct
-{
-	char *ap_ssid; // AP SSID is also the Camera Name
-	char *sta_ssid;
-	char *ap_pw;
-	char *sta_pw;
-	uint8_t flags;
-	uint8_t ap_ip_addr[4];
-	uint8_t sta_ip_addr[4];
-	uint8_t sta_netmask[4];
-	uint8_t cur_ip_addr[4];
+typedef struct {
+  char *ap_ssid;  // AP SSID is also the Camera Name
+  char *sta_ssid;
+  char *ap_pw;
+  char *sta_pw;
+  uint8_t flags;
+  uint8_t ap_ip_addr[4];
+  uint8_t sta_ip_addr[4];
+  uint8_t sta_netmask[4];
+  uint8_t cur_ip_addr[4];
 } net_info_t;
-
-typedef struct
-{
-	char *serial_number;
-	char *aws_ip_address;
-	int port_number;
-	bool update_required;
-} onboarding_details_t;
 
 //
 // Network Utilities Function pointers
@@ -76,7 +68,6 @@ extern bool (*net_init)();
 extern bool (*net_reinit)();
 extern bool (*net_is_connected)();
 extern net_info_t *(*net_get_info)();
-extern onboarding_details_t *(*onboarding_details_info)();
 
 //
 // Network Utilities API

@@ -23,10 +23,11 @@
  * along with tCam.  If not, see <https://www.gnu.org/licenses/>.
  *
  */
-#include "eth_utilities.h"
 #include "net_utilities.h"
-#include "wifi_utilities.h"
+
 #include "ctrl_task.h"
+#include "eth_utilities.h"
+#include "wifi_utilities.h"
 
 //
 // Network Utilities Function pointers
@@ -35,25 +36,20 @@ bool (*net_init)();
 bool (*net_reinit)();
 bool (*net_is_connected)();
 net_info_t *(*net_get_info)();
-onboarding_details_t *(*onboarding_details_info)();
 
 //
 // Network Utilities API
 //
-void net_init_if(int if_type)
-{
-	if (if_type == CTRL_IF_MODE_ETH)
-	{
-		net_init = &eth_init;
-		net_reinit = &eth_reinit;
-		net_is_connected = &eth_is_connected;
-		net_get_info = &eth_get_info;
-	}
-	else
-	{
-		net_init = &wifi_init;
-		net_reinit = &wifi_reinit;
-		net_is_connected = &wifi_is_connected;
-		net_get_info = &wifi_get_info;
-	}
+void net_init_if(int if_type) {
+  if (if_type == CTRL_IF_MODE_ETH) {
+    net_init = &eth_init;
+    net_reinit = &eth_reinit;
+    net_is_connected = &eth_is_connected;
+    net_get_info = &eth_get_info;
+  } else {
+    net_init = &wifi_init;
+    net_reinit = &wifi_reinit;
+    net_is_connected = &wifi_is_connected;
+    net_get_info = &wifi_get_info;
+  }
 }
