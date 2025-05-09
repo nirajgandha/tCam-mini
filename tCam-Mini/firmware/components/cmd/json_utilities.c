@@ -166,7 +166,7 @@ cJSON *json_get_cmd_object(char *json_string) {
  *
  * This function handles its own memory management.
  */
-uint32_t json_get_image_file_string(char *json_image_text,
+uint32_t json_get_image_file_string(char *json_image_text, char *serial_number,
                                     lep_buffer_t *lep_buffer) {
   bool success;
   int len = 0;
@@ -175,7 +175,7 @@ uint32_t json_get_image_file_string(char *json_image_text,
   root = cJSON_CreateObject();
   if (root == NULL) return 0;
 
-  cJSON_AddStringToObject(root, "serialNumber", "4264");
+  cJSON_AddStringToObject(root, "serialNumber", serial_number);
   cJSON_AddBoolToObject(root, "process_image", process_image);
   if (process_image) {
     process_image = false;

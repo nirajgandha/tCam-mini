@@ -1,9 +1,9 @@
 /*
  * Response Task
  *
- * Implement the response transmission module under control of the command module.
- * Responsible for sending responses to the connected client.  Sources of responses
- * include the command task, lepton task and file task.
+ * Implement the response transmission module under control of the command
+ * module. Responsible for sending responses to the connected client.  Sources
+ * of responses include the command task, lepton task and file task.
  *
  * Copyright 2020-2022 Dan Julio
  *
@@ -23,39 +23,41 @@
  * along with tCam.  If not, see <https://www.gnu.org/licenses/>.
  *
  */
-#include "net_cmd_task.h"
-#include "sif_cmd_task.h"
-#include "ctrl_task.h"
-#include "lep_task.h"
 #include "rsp_task.h"
+
+#include <lwip/netdb.h>
+
+#include "aws_cmd_task.h"
 #include "cmd_utilities.h"
-#include "json_utilities.h"
-#include "sif_utilities.h"
-#include "sys_utilities.h"
-#include "upd_utilities.h"
-#include "system_config.h"
-#include "esp_system.h"
+#include "ctrl_task.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
+#include "json_utilities.h"
+#include "lep_task.h"
 #include "lwip/err.h"
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
-#include <lwip/netdb.h>
-#include "aws_cmd_task.h"
+#include "net_cmd_task.h"
+#include "ps_utilities.h"
 #include "send_img_interval_task.h"
-
+#include "sif_cmd_task.h"
+#include "sif_utilities.h"
+#include "sys_utilities.h"
+#include "system_config.h"
+#include "upd_utilities.h"
 
 //
 // RSP Task constants
 //
 
 // Uncomment to log various image processing timestamps
-//#define LOG_IMG_TIMESTAMP
-//#define LOG_PROC_TIMESTAMP
-//#define LOG_SEND_TIMESTAMP
-//#define LOG_SIF_SEND
+// #define LOG_IMG_TIMESTAMP
+// #define LOG_PROC_TIMESTAMP
+// #define LOG_SEND_TIMESTAMP
+// #define LOG_SIF_SEND
 
 //
 // RSP Task variables
@@ -69,12 +71,14 @@ static bool image_pending;
 static bool got_image_0, got_image_1;
 
 // Stream rate/duration control
-static uint32_t next_stream_frame_delay_msec;   // mSec between images; 0 = fast as possible
+static uint32_t
+    next_stream_frame_delay_msec;  // mSec between images; 0 = fast as possible
 static uint32_t cur_stream_frame_delay_usec;
-static uint32_t next_stream_frame_num;          // Number of frames to stream; 0 = infinite
+static uint32_t
+    next_stream_frame_num;  // Number of frames to stream; 0 = infinite
 static uint32_t cur_stream_frame_num;
-static uint32_t stream_remaining_frames;        // Remaining frames to stream
-static int64_t stream_ready_usec;               // Next ESP32 uSec timestamp to send image
+static uint32_t stream_remaining_frames;  // Remaining frames to stream
+static int64_t stream_ready_usec;  // Next ESP32 uSec timestamp to send image
 
 // cam_info json string temporary buffer
 static SemaphoreHandle_t cam_info_mutex;
@@ -82,6 +86,7 @@ static char cam_info_string[JSON_MAX_RSP_TEXT_LEN];
 
 // Command Response buffer (holds single responses from the cmd_task)
 static char cmd_task_response_buffer[JSON_MAX_RSP_TEXT_LEN];
+static char serial_number[PS_PW_MAX_LEN + 1];
 
 //
 // RSP Task Forward Declarations for internal functions
@@ -96,141 +101,136 @@ static int get_cmd_response();
 static char pop_cmd_response_buffer();
 static void send_spi_image(char* rsp, int rsp_length);
 
-
-
 //
 // RSP Task API
 //
-void rsp_task()
-{
-	int len;
-	int brd_type;
-	int if_type;
-	
-	ESP_LOGI(TAG, "Start task");
-	
-	//
-	// Initialize
-	//
-	init_state();
-	
-	ctrl_get_if_mode(&brd_type, &if_type);
-	
-	cam_info_mutex = xSemaphoreCreateMutex();
-	
-	//
-	// Task loop
-	//
-	while (1) {
-		// Evaluate streaming conditions for ready to send image if enabled before
-		// handling notifications (of images from lep_task)
-		if (stream_on) {
-			eval_stream_ready();
-		}
-		
-		// Process notifications from other tasks
-		handle_notifications();
-		
-		// Get our current wifi connection state if necessary
-		if (check_if_aws_fully_connected())
-		{
-			//While the aws is fully connected, it won't go to else if.
-			connected = true;
-		} 
-		else if (connected)
-		{
-			//This state reached when the aws is disconnected, but it was connected previously
-			init_state();
-		}
-		
-		// Look for things to send
-		if (got_image_0 || got_image_1) {
-			if (connected) {
-				if (got_image_0) {
-					len = process_image(0);
-					got_image_0 = false;
-#ifdef LOG_IMG_TIMESTAMP
-					ESP_LOGI(TAG, "process image 0");
-#endif
-				} else {
-					len = process_image(1);
-					got_image_1 = false;
-#ifdef LOG_IMG_TIMESTAMP
-					ESP_LOGI(TAG, "process image 1");
-#endif
-				}	
-					
-				// Send the image
-				if (len != 0) {
-					send_response(sys_image_rsp_buffer.bufferP, sys_image_rsp_buffer.length, false);
-				}
-				
-				// If streaming, determine if we have sent the required number of images if necessary
-				if (stream_on && (cur_stream_frame_num != 0)) {
-					if (--stream_remaining_frames == 0) {
-						stream_on = false;
-					}
-				}
-			}
-		}
-		
-		if (cmd_response_available()) {
-			// Get the command response and send it if possible
-			len = get_cmd_response();
-			if (connected && (len != 0)) {
-				send_response(cmd_task_response_buffer, len, (if_type == CTRL_IF_MODE_SIF));
-			}
-		}
-		
-		// Sleep task - less if we are streaming
-		if (stream_on) {
-			vTaskDelay(pdMS_TO_TICKS(RSP_TASK_EVAL_FAST_MSEC));
-		} else {
-			vTaskDelay(pdMS_TO_TICKS(RSP_TASK_EVAL_NORM_MSEC));
-		}
-	} 
-}
+void rsp_task() {
+  int len;
+  int brd_type;
+  int if_type;
 
+  ESP_LOGI(TAG, "Start task");
+
+  //
+  // Initialize
+  //
+  init_state();
+
+  ctrl_get_if_mode(&brd_type, &if_type);
+
+  cam_info_mutex = xSemaphoreCreateMutex();
+
+  //
+  // Task loop
+  //
+  while (1) {
+    // Evaluate streaming conditions for ready to send image if enabled before
+    // handling notifications (of images from lep_task)
+    if (stream_on) {
+      eval_stream_ready();
+    }
+
+    // Process notifications from other tasks
+    handle_notifications();
+
+    // Get our current wifi connection state if necessary
+    if (check_if_aws_fully_connected()) {
+      // While the aws is fully connected, it won't go to else if.
+      connected = true;
+    } else if (connected) {
+      // This state reached when the aws is disconnected, but it was connected
+      // previously
+      init_state();
+    }
+
+    // Look for things to send
+    if (got_image_0 || got_image_1) {
+      if (connected) {
+        if (got_image_0) {
+          len = process_image(0);
+          got_image_0 = false;
+#ifdef LOG_IMG_TIMESTAMP
+          ESP_LOGI(TAG, "process image 0");
+#endif
+        } else {
+          len = process_image(1);
+          got_image_1 = false;
+#ifdef LOG_IMG_TIMESTAMP
+          ESP_LOGI(TAG, "process image 1");
+#endif
+        }
+
+        // Send the image
+        if (len != 0) {
+          send_response(sys_image_rsp_buffer.bufferP,
+                        sys_image_rsp_buffer.length, false);
+        }
+
+        // If streaming, determine if we have sent the required number of images
+        // if necessary
+        if (stream_on && (cur_stream_frame_num != 0)) {
+          if (--stream_remaining_frames == 0) {
+            stream_on = false;
+          }
+        }
+      }
+    }
+
+    if (cmd_response_available()) {
+      // Get the command response and send it if possible
+      len = get_cmd_response();
+      if (connected && (len != 0)) {
+        send_response(cmd_task_response_buffer, len,
+                      (if_type == CTRL_IF_MODE_SIF));
+      }
+    }
+
+    // Sleep task - less if we are streaming
+    if (stream_on) {
+      vTaskDelay(pdMS_TO_TICKS(RSP_TASK_EVAL_FAST_MSEC));
+    } else {
+      vTaskDelay(pdMS_TO_TICKS(RSP_TASK_EVAL_NORM_MSEC));
+    }
+  }
+}
 
 // Called before sending RSP_NOTIFY_CMD_STREAM_ON_MASK
-void rsp_set_stream_parameters(uint32_t delay_ms, uint32_t num_frames)
-{
-	next_stream_frame_delay_msec = delay_ms;
-	next_stream_frame_num = num_frames;
+void rsp_set_stream_parameters(uint32_t delay_ms, uint32_t num_frames) {
+  next_stream_frame_delay_msec = delay_ms;
+  next_stream_frame_num = num_frames;
 }
 
+void rsp_set_cam_info_msg(uint32_t info_value, char* info_string) {
+  int i;
+  int len;
 
-void rsp_set_cam_info_msg(uint32_t info_value, char* info_string)
-{
-	int i;
-	int len;
-	
-	xSemaphoreTake(cam_info_mutex, portMAX_DELAY);
-	
-	// Create the cam_info json string
-	len = json_get_cam_info(cam_info_string, info_value, info_string);
-	
-	// Atomically load cmd_task_response_buffer
-	xSemaphoreTake(sys_cmd_response_buffer.mutex, portMAX_DELAY);
-	
-	// Only load if there's room for this response
-	if (len <= (CMD_RESPONSE_BUFFER_LEN - sys_cmd_response_buffer.length)) {
-		for (i=0; i<len; i++) {
-			// Push data
-			*sys_cmd_response_buffer.pushP = cam_info_string[i];
-			
-			// Increment push pointer
-			if (++sys_cmd_response_buffer.pushP >= (sys_cmd_response_buffer.bufferP + CMD_RESPONSE_BUFFER_LEN)) {
-				sys_cmd_response_buffer.pushP = sys_cmd_response_buffer.bufferP;
-			}
-		}
-		
-		sys_cmd_response_buffer.length += len;
-	}
-	
-	xSemaphoreGive(sys_cmd_response_buffer.mutex);
-	
-	xSemaphoreGive(cam_info_mutex);
+  xSemaphoreTake(cam_info_mutex, portMAX_DELAY);
+
+  // Create the cam_info json string
+  len = json_get_cam_info(cam_info_string, info_value, info_string);
+
+  // Atomically load cmd_task_response_buffer
+  xSemaphoreTake(sys_cmd_response_buffer.mutex, portMAX_DELAY);
+
+  // Only load if there's room for this response
+  if (len <= (CMD_RESPONSE_BUFFER_LEN - sys_cmd_response_buffer.length)) {
+    for (i = 0; i < len; i++) {
+      // Push data
+      *sys_cmd_response_buffer.pushP = cam_info_string[i];
+
+      // Increment push pointer
+      if (++sys_cmd_response_buffer.pushP >=
+          (sys_cmd_response_buffer.bufferP + CMD_RESPONSE_BUFFER_LEN)) {
+        sys_cmd_response_buffer.pushP = sys_cmd_response_buffer.bufferP;
+      }
+    }
+
+    sys_cmd_response_buffer.length += len;
+  }
+
+  xSemaphoreGive(sys_cmd_response_buffer.mutex);
+
+  xSemaphoreGive(cam_info_mutex);
 }
 
 //
@@ -240,342 +240,328 @@ void rsp_set_cam_info_msg(uint32_t info_value, char* info_string)
 /**
  * (Re)Initialize
  */
-static void init_state()
-{
-	ESP_LOGE(TAG, "init_state() called");
-	connected = false;
-	stream_on = false;
-	next_stream_frame_delay_msec = 0;
-	next_stream_frame_num = 0;
-	image_pending = false;
-	got_image_0 = false;
-	got_image_1 = false;
-	
-	// Flush the command response buffer
-	xSemaphoreTake(sys_cmd_response_buffer.mutex, portMAX_DELAY);
-	sys_cmd_response_buffer.length = 0;
-	sys_cmd_response_buffer.popP = sys_cmd_response_buffer.pushP;
-	xSemaphoreGive(sys_cmd_response_buffer.mutex);
-}
+static void init_state() {
+  ESP_LOGE(TAG, "init_state() called");
+  connected = false;
+  stream_on = false;
+  next_stream_frame_delay_msec = 0;
+  next_stream_frame_num = 0;
+  image_pending = false;
+  got_image_0 = false;
+  got_image_1 = false;
 
+  // Flush the command response buffer
+  xSemaphoreTake(sys_cmd_response_buffer.mutex, portMAX_DELAY);
+  sys_cmd_response_buffer.length = 0;
+  sys_cmd_response_buffer.popP = sys_cmd_response_buffer.pushP;
+  xSemaphoreGive(sys_cmd_response_buffer.mutex);
+}
 
 /**
  * Evaluate stream rate/duration variables to see if it's time to send an image.
  * Assumes stream_on set.
  */
-static void eval_stream_ready()
-{
-	// Determine if we are ready to send the next available image
-	if (cur_stream_frame_delay_usec == 0) {
-		image_pending = true;
-	} else {
-		if (esp_timer_get_time() >= stream_ready_usec) {
-			image_pending = true;
-			stream_ready_usec = stream_ready_usec + cur_stream_frame_delay_usec;
-		}
-	}
+static void eval_stream_ready() {
+  // Determine if we are ready to send the next available image
+  if (cur_stream_frame_delay_usec == 0) {
+    image_pending = true;
+  } else {
+    if (esp_timer_get_time() >= stream_ready_usec) {
+      image_pending = true;
+      stream_ready_usec = stream_ready_usec + cur_stream_frame_delay_usec;
+    }
+  }
 }
-
 
 /**
  * Handle incoming notifications
  */
-static void handle_notifications()
-{
-	uint32_t notification_value;
-	
-	notification_value = 0;
-	if (xTaskNotifyWait(0x00, 0xFFFFFFFF, &notification_value, 0)) {
-		//
-		// Handle cmd_task notifications
-		//
-		if (Notification(notification_value, RSP_NOTIFY_CMD_GET_IMG_MASK)) {
-			if (!stream_on)
-			{
-				image_pending = true;
-			}
-			set_process_image(true);
-		}
-		
-		if (Notification(notification_value, RSP_NOTIFY_CMD_STREAM_ON_MASK)) {
-			// Setup streaming
-			cur_stream_frame_delay_usec = next_stream_frame_delay_msec * 1000;
-			cur_stream_frame_num = next_stream_frame_num;
-			stream_remaining_frames = next_stream_frame_num;
-			
-			// First image is immediate
-			stream_ready_usec = esp_timer_get_time();
-			image_pending = true;
-			
-			// Start streaming
-			stream_on = true;
-		}
-		
-		if (Notification(notification_value, RSP_NOTIFY_CMD_STREAM_OFF_MASK)) {
-			// Stop streaming
-			stream_on = false;
-		}
-		
-		//
-		// Handle lep_task notifications
-		//
-		if (Notification(notification_value, RSP_NOTIFY_LEP_FRAME_MASK_0)) {
-			if (image_pending) {
-				got_image_0 = true;
-				image_pending = false;
-			}
-		}
-		
-		if (Notification(notification_value, RSP_NOTIFY_LEP_FRAME_MASK_1)) {
-			if (image_pending) {
-				got_image_1 = true;
-				image_pending = false;
-			}
-		}
-	}
-}
+static void handle_notifications() {
+  uint32_t notification_value;
 
+  notification_value = 0;
+  if (xTaskNotifyWait(0x00, 0xFFFFFFFF, &notification_value, 0)) {
+    //
+    // Handle cmd_task notifications
+    //
+    if (Notification(notification_value, RSP_NOTIFY_CMD_GET_IMG_MASK)) {
+      if (!stream_on) {
+        image_pending = true;
+      }
+      set_process_image(true);
+    }
+
+    if (Notification(notification_value, RSP_NOTIFY_CMD_STREAM_ON_MASK)) {
+      // Setup streaming
+      cur_stream_frame_delay_usec = next_stream_frame_delay_msec * 1000;
+      cur_stream_frame_num = next_stream_frame_num;
+      stream_remaining_frames = next_stream_frame_num;
+
+      // First image is immediate
+      stream_ready_usec = esp_timer_get_time();
+      image_pending = true;
+
+      // Start streaming
+      stream_on = true;
+    }
+
+    if (Notification(notification_value, RSP_NOTIFY_CMD_STREAM_OFF_MASK)) {
+      // Stop streaming
+      stream_on = false;
+    }
+
+    //
+    // Handle lep_task notifications
+    //
+    if (Notification(notification_value, RSP_NOTIFY_LEP_FRAME_MASK_0)) {
+      if (image_pending) {
+        got_image_0 = true;
+        image_pending = false;
+      }
+    }
+
+    if (Notification(notification_value, RSP_NOTIFY_LEP_FRAME_MASK_1)) {
+      if (image_pending) {
+        got_image_1 = true;
+        image_pending = false;
+      }
+    }
+  }
+}
 
 /**
- * Convert lepton data in the specified half of the ping-pong buffer into a json record
- * with delimitors for transmission over the network
+ * Convert lepton data in the specified half of the ping-pong buffer into a json
+ * record with delimitors for transmission over the network
  */
-static int process_image(int n)
-{
+static int process_image(int n) {
 #ifdef LOG_PROC_TIMESTAMP
-	int64_t tb, te;
-	
-	tb = esp_timer_get_time();
-#endif
-	
-	// Convert the image into a json record
-	xSemaphoreTake(rsp_lep_buffer[n].lep_mutex, portMAX_DELAY);
-    sys_image_rsp_buffer.length = json_get_image_file_string(sys_image_rsp_buffer.bufferP+1, &rsp_lep_buffer[n]);
-    xSemaphoreGive(rsp_lep_buffer[n].lep_mutex);
-    
-    if ((sys_image_rsp_buffer.length > 0) && (sys_image_rsp_buffer.length < JSON_MAX_IMAGE_TEXT_LEN-2)) {
-        // Add the delimitors
-        *sys_image_rsp_buffer.bufferP = CMD_JSON_STRING_START;
-        *(sys_image_rsp_buffer.bufferP + sys_image_rsp_buffer.length + 1) = CMD_JSON_STRING_STOP;
-        sys_image_rsp_buffer.length = sys_image_rsp_buffer.length + 2;
-    } else {
-        ESP_LOGE(TAG, "Illegal image_json_text for sys_image_rsp_buffer (%d bytes)", sys_image_rsp_buffer.length);
-        sys_image_rsp_buffer.length = 0;
-	}
-	
-#ifdef LOG_PROC_TIMESTAMP
-	te = esp_timer_get_time();
-	ESP_LOGI(TAG, "process_image took %d uSec", (int) (te - tb));
+  int64_t tb, te;
+
+  tb = esp_timer_get_time();
 #endif
 
-	return sys_image_rsp_buffer.length;
+  // Convert the image into a json record
+  xSemaphoreTake(rsp_lep_buffer[n].lep_mutex, portMAX_DELAY);
+  sys_image_rsp_buffer.length = json_get_image_file_string(
+      sys_image_rsp_buffer.bufferP + 1, serial_number, &rsp_lep_buffer[n]);
+  xSemaphoreGive(rsp_lep_buffer[n].lep_mutex);
+
+  if ((sys_image_rsp_buffer.length > 0) &&
+      (sys_image_rsp_buffer.length < JSON_MAX_IMAGE_TEXT_LEN - 2)) {
+    // Add the delimitors
+    *sys_image_rsp_buffer.bufferP = CMD_JSON_STRING_START;
+    *(sys_image_rsp_buffer.bufferP + sys_image_rsp_buffer.length + 1) =
+        CMD_JSON_STRING_STOP;
+    sys_image_rsp_buffer.length = sys_image_rsp_buffer.length + 2;
+  } else {
+    ESP_LOGE(TAG, "Illegal image_json_text for sys_image_rsp_buffer (%d bytes)",
+             sys_image_rsp_buffer.length);
+    sys_image_rsp_buffer.length = 0;
+  }
+
+#ifdef LOG_PROC_TIMESTAMP
+  te = esp_timer_get_time();
+  ESP_LOGI(TAG, "process_image took %d uSec", (int)(te - tb));
+#endif
+
+  return sys_image_rsp_buffer.length;
 }
 
-void send_data_to_aws_socket(char* rsp, int rsp_length)
-{
-	// int byte_offset;
-	int len;
-	if (check_if_aws_fully_connected())
-	{
-		esp_websocket_client_handle_t ws = aws_cmd_get_ws_handle();
-		len = rsp_length;
-		// Write our response to the socket
-		int byte_sent = esp_websocket_client_send_text(ws, rsp, len, portMAX_DELAY);
-		if (byte_sent < 0)
-		{
-			ESP_LOGE(TAG, "Error in aws socket send: errno %d", errno);
-		}
-	}
-	else
-	{
-		ESP_LOGW(TAG, "WebSocket not connected, cannot send");
-	}
+void send_data_to_aws_socket(char* rsp, int rsp_length) {
+  // int byte_offset;
+  int len;
+  if (check_if_aws_fully_connected()) {
+    esp_websocket_client_handle_t ws = aws_cmd_get_ws_handle();
+    len = rsp_length;
+    // Write our response to the socket
+    int byte_sent = esp_websocket_client_send_text(ws, rsp, len, portMAX_DELAY);
+    if (byte_sent < 0) {
+      ESP_LOGE(TAG, "Error in aws socket send: errno %d", errno);
+    }
+  } else {
+    ESP_LOGW(TAG, "WebSocket not connected, cannot send");
+  }
 }
 
-void send_data_to_local_socket(char* rsp, int rsp_length)
-{
-	if (!net_cmd_connected())
-	{
-		return;
-	}
-	
-	int byte_offset;
-	int err;
-	int len;
-	int sock;
-	sock = net_cmd_get_socket();
+void send_data_to_local_socket(char* rsp, int rsp_length) {
+  if (!net_cmd_connected()) {
+    return;
+  }
 
-	// Write our response to the socket
-	byte_offset = 0;
-	while (byte_offset < rsp_length)
-	{
-		len = rsp_length - byte_offset;
-		if (len > RSP_MAX_TX_PKT_LEN)
-			len = RSP_MAX_TX_PKT_LEN;
-		err = send(sock, rsp + byte_offset, len, 0);
-		if (err < 0)
-		{
-			ESP_LOGE(TAG, "Error in socket send: errno %d", errno);
-			break;
-		}
-		byte_offset += err;
-	}
+  int byte_offset;
+  int err;
+  int len;
+  int sock;
+  sock = net_cmd_get_socket();
+
+  // Write our response to the socket
+  byte_offset = 0;
+  while (byte_offset < rsp_length) {
+    len = rsp_length - byte_offset;
+    if (len > RSP_MAX_TX_PKT_LEN) len = RSP_MAX_TX_PKT_LEN;
+    err = send(sock, rsp + byte_offset, len, 0);
+    if (err < 0) {
+      ESP_LOGE(TAG, "Error in socket send: errno %d", errno);
+      break;
+    }
+    byte_offset += err;
+  }
 }
 
 /**
  * Send a response
  */
-static void send_response(char* rsp, int rsp_length, bool ser_mode)
-{
+static void send_response(char* rsp, int rsp_length, bool ser_mode) {
 #ifdef LOG_SEND_TIMESTAMP
-	int64_t tb, te;
-	
-	tb = esp_timer_get_time();
+  int64_t tb, te;
+
+  tb = esp_timer_get_time();
 #endif
-	
-		ESP_LOGI(TAG, "Response length: %d", rsp_length);
-		send_data_to_local_socket(rsp, rsp_length);
-		send_data_to_aws_socket(rsp, rsp_length);
-	
+
+  ESP_LOGI(TAG, "Response length: %d", rsp_length);
+  send_data_to_local_socket(rsp, rsp_length);
+  send_data_to_aws_socket(rsp, rsp_length);
+
 #ifdef LOG_SEND_TIMESTAMP
-	te = esp_timer_get_time();
-	ESP_LOGI(TAG, "send_response took %d uSec", (int) (te - tb));
+  te = esp_timer_get_time();
+  ESP_LOGI(TAG, "send_response took %d uSec", (int)(te - tb));
 #endif
 }
 
 /**
- * Atomically check if there is a response from cmd_task to transmit and load our global
- * cmd_response_length variable with its length
+ * Atomically check if there is a response from cmd_task to transmit and load
+ * our global cmd_response_length variable with its length
  */
-static bool cmd_response_available()
-{
-	int len;
-	
-	xSemaphoreTake(sys_cmd_response_buffer.mutex, portMAX_DELAY);
-	len = sys_cmd_response_buffer.length;
-	xSemaphoreGive(sys_cmd_response_buffer.mutex);
-	
-	return (len != 0);
-}
+static bool cmd_response_available() {
+  int len;
 
+  xSemaphoreTake(sys_cmd_response_buffer.mutex, portMAX_DELAY);
+  len = sys_cmd_response_buffer.length;
+  xSemaphoreGive(sys_cmd_response_buffer.mutex);
+
+  return (len != 0);
+}
 
 /**
- * Load our cmd_task_response_buffer and atomically update the command response buffer
- * indicating we popped a response
+ * Load our cmd_task_response_buffer and atomically update the command response
+ * buffer indicating we popped a response
  */
-static int get_cmd_response()
-{
-	char c;
-	int len = 0;
-	
-	// Pop an entire delimited json string
-	do {
-		c = pop_cmd_response_buffer();
-		cmd_task_response_buffer[len++] = c;
-	} while ((c != CMD_JSON_STRING_STOP) && (len <= JSON_MAX_RSP_TEXT_LEN));
-	
-	// Atomically update cmd_task_response_buffer
-	xSemaphoreTake(sys_cmd_response_buffer.mutex, portMAX_DELAY);
-	if (len > JSON_MAX_RSP_TEXT_LEN) {
-		// Didn't find complete json string so flush the queue
-		sys_cmd_response_buffer.length = 0;
-		sys_cmd_response_buffer.popP = sys_cmd_response_buffer.pushP;
-		len = 0;
-	} else {
-		// Subtract the length of the data we popped
-		sys_cmd_response_buffer.length = sys_cmd_response_buffer.length - len;
-	}
-	xSemaphoreGive(sys_cmd_response_buffer.mutex);
-	
-	return len;
-}
+static int get_cmd_response() {
+  char c;
+  int len = 0;
 
+  // Pop an entire delimited json string
+  do {
+    c = pop_cmd_response_buffer();
+    cmd_task_response_buffer[len++] = c;
+  } while ((c != CMD_JSON_STRING_STOP) && (len <= JSON_MAX_RSP_TEXT_LEN));
+
+  // Atomically update cmd_task_response_buffer
+  xSemaphoreTake(sys_cmd_response_buffer.mutex, portMAX_DELAY);
+  if (len > JSON_MAX_RSP_TEXT_LEN) {
+    // Didn't find complete json string so flush the queue
+    sys_cmd_response_buffer.length = 0;
+    sys_cmd_response_buffer.popP = sys_cmd_response_buffer.pushP;
+    len = 0;
+  } else {
+    // Subtract the length of the data we popped
+    sys_cmd_response_buffer.length = sys_cmd_response_buffer.length - len;
+  }
+  xSemaphoreGive(sys_cmd_response_buffer.mutex);
+
+  return len;
+}
 
 /**
  * Pop a character from the command response buffer
  */
-static char pop_cmd_response_buffer()
-{
-	char c;
-	
-	c = *sys_cmd_response_buffer.popP;
-	
-	if (++sys_cmd_response_buffer.popP >= (sys_cmd_response_buffer.bufferP + CMD_RESPONSE_BUFFER_LEN)) {
-		sys_cmd_response_buffer.popP = sys_cmd_response_buffer.bufferP;
-	}
-	
-	return c;
-}
+static char pop_cmd_response_buffer() {
+  char c;
 
+  c = *sys_cmd_response_buffer.popP;
+
+  if (++sys_cmd_response_buffer.popP >=
+      (sys_cmd_response_buffer.bufferP + CMD_RESPONSE_BUFFER_LEN)) {
+    sys_cmd_response_buffer.popP = sys_cmd_response_buffer.bufferP;
+  }
+
+  return c;
+}
 
 /**
  * Setup the SPI Slave to be read with the image and send an image ready message
  * via the serial interface.
  */
-static void send_spi_image(char* rsp, int rsp_length)
-{
-	char* cP;
-	char* eP;
-	int dma_length;
-	uint32_t cs;
-	static bool enabled = true;
-	
-	// Skip sending any images if the SPI Slave is no longer running
-	if (!enabled) return;
-	
-	// Compute a 32-bit checksum (32-bit sum of all bytes in the image string)
-	// and add it to the end of the image
-	cP  = rsp;
-	eP = rsp + rsp_length;
-	cs = 0;
-	while (cP < eP) {
-		cs += *cP++;
-	}
-	*(rsp + rsp_length + 0) = (cs >> 24) & 0xFF;
-	*(rsp + rsp_length + 1) = (cs >> 16) & 0xFF;
-	*(rsp + rsp_length + 2) = (cs >> 8) & 0xFF;
-	*(rsp + rsp_length + 3) = cs & 0xFF;
-	rsp_length += 4;
-	
-	// Length (for DMA) must be multiple of 4 bytes
-	if (rsp_length & 0x3) {
-		// Round up to next 4-byte boundary
-		dma_length = (rsp_length + 4) & 0xFFFFFFFC;
-	} else {
-		dma_length = rsp_length;
-	}
-	
-	// Create the image ready message
-	sprintf(cmd_task_response_buffer, "%c{\"image_ready\" : %d}%c", CMD_JSON_STRING_START, rsp_length, CMD_JSON_STRING_STOP);
+static void send_spi_image(char* rsp, int rsp_length) {
+  char* cP;
+  char* eP;
+  int dma_length;
+  uint32_t cs;
+  static bool enabled = true;
 
-	if (system_config_spi_slave(rsp, dma_length)) {
-		// Wait for the SPI Slave to report busy indicating it is ready
-		while (!system_spi_slave_busy()) {};
-		
-		// Load the image ready message
-		send_response(cmd_task_response_buffer, strlen(cmd_task_response_buffer), true);
-		
-		// Wait for the SPI Slave to complete transferring the data
-		if (!system_spi_wait_done()) {
-			// Something went wrong with the SPI Slave - probably a timeout and
-			// we couldn't successfully reset it.  So we disable its use and
-			// attempt to let our user about the failure.
-			enabled = false;
-			ESP_LOGE(TAG, "SPI Slave restart error");
-			rsp_set_cam_info_msg(RSP_INFO_INT_ERROR, "SPI Slave restart error - images disabled");
-			ctrl_set_fault_type(CTRL_FAULT_NETWORK);
-			xTaskNotify(task_handle_ctrl, CTRL_NOTIFY_FAULT, eSetBits);
-		}
-	} else {
-		enabled = false;
-		ESP_LOGE(TAG, "Setup SPI Slave failed");
-		rsp_set_cam_info_msg(RSP_INFO_INT_ERROR, "Setup SPI Slave failed - images disabled");
-		ctrl_set_fault_type(CTRL_FAULT_NETWORK);
-		xTaskNotify(task_handle_ctrl, CTRL_NOTIFY_FAULT, eSetBits);
-	}
+  // Skip sending any images if the SPI Slave is no longer running
+  if (!enabled) return;
+
+  // Compute a 32-bit checksum (32-bit sum of all bytes in the image string)
+  // and add it to the end of the image
+  cP = rsp;
+  eP = rsp + rsp_length;
+  cs = 0;
+  while (cP < eP) {
+    cs += *cP++;
+  }
+  *(rsp + rsp_length + 0) = (cs >> 24) & 0xFF;
+  *(rsp + rsp_length + 1) = (cs >> 16) & 0xFF;
+  *(rsp + rsp_length + 2) = (cs >> 8) & 0xFF;
+  *(rsp + rsp_length + 3) = cs & 0xFF;
+  rsp_length += 4;
+
+  // Length (for DMA) must be multiple of 4 bytes
+  if (rsp_length & 0x3) {
+    // Round up to next 4-byte boundary
+    dma_length = (rsp_length + 4) & 0xFFFFFFFC;
+  } else {
+    dma_length = rsp_length;
+  }
+
+  // Create the image ready message
+  sprintf(cmd_task_response_buffer, "%c{\"image_ready\" : %d}%c",
+          CMD_JSON_STRING_START, rsp_length, CMD_JSON_STRING_STOP);
+
+  if (system_config_spi_slave(rsp, dma_length)) {
+    // Wait for the SPI Slave to report busy indicating it is ready
+    while (!system_spi_slave_busy()) {
+    };
+
+    // Load the image ready message
+    send_response(cmd_task_response_buffer, strlen(cmd_task_response_buffer),
+                  true);
+
+    // Wait for the SPI Slave to complete transferring the data
+    if (!system_spi_wait_done()) {
+      // Something went wrong with the SPI Slave - probably a timeout and
+      // we couldn't successfully reset it.  So we disable its use and
+      // attempt to let our user about the failure.
+      enabled = false;
+      ESP_LOGE(TAG, "SPI Slave restart error");
+      rsp_set_cam_info_msg(RSP_INFO_INT_ERROR,
+                           "SPI Slave restart error - images disabled");
+      ctrl_set_fault_type(CTRL_FAULT_NETWORK);
+      xTaskNotify(task_handle_ctrl, CTRL_NOTIFY_FAULT, eSetBits);
+    }
+  } else {
+    enabled = false;
+    ESP_LOGE(TAG, "Setup SPI Slave failed");
+    rsp_set_cam_info_msg(RSP_INFO_INT_ERROR,
+                         "Setup SPI Slave failed - images disabled");
+    ctrl_set_fault_type(CTRL_FAULT_NETWORK);
+    xTaskNotify(task_handle_ctrl, CTRL_NOTIFY_FAULT, eSetBits);
+  }
 }
 
-bool is_stream_on()
-{
-	return stream_on;
+bool is_stream_on() { return stream_on; }
+
+void set_serial_number(char* serial_number_from_esp32) {
+  memset(serial_number, 0, sizeof(serial_number));
+  strcpy(serial_number, serial_number_from_esp32);
 }

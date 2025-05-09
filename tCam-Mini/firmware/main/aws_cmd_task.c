@@ -37,6 +37,7 @@
 #include "json_utilities.h"
 #include "net_utilities.h"
 #include "ps_utilities.h"
+#include "rsp_task.h"
 #include "sif_utilities.h"
 #include "system_config.h"
 
@@ -100,7 +101,7 @@ void aws_cmd_task() {
 
     ps_get_onboarding_details_info(&onboarding_details_info);
     if (!onboarding_details_info.update_required &&
-        strcmp(onboarding_details_info.serial_number, "4391") != 0) {
+        strcmp(onboarding_details_info.serial_number, "0000") != 0) {
       break;
     }
     memset(message, 0, sizeof(message));
@@ -125,6 +126,7 @@ void aws_cmd_task() {
           get_aws_client_config(onboarding_details_info.serial_number,
                                 onboarding_details_info.aws_ip_address,
                                 onboarding_details_info.port_number);
+      set_serial_number(onboarding_details_info.serial_number);
       init_aws_client(&config);
       start_aws_connection();
       vTaskDelay(pdMS_TO_TICKS(10000));

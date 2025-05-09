@@ -47,7 +47,7 @@
 //
 bool json_init();
 cJSON *json_get_cmd_object(char *json_string);
-uint32_t json_get_image_file_string(char *json_image_text,
+uint32_t json_get_image_file_string(char *json_image_text, char *serial_number,
                                     lep_buffer_t *lep_buffer);
 char *json_get_config(uint32_t *len);
 char *json_get_status(uint32_t *len);
