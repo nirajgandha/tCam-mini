@@ -48,6 +48,7 @@
 #define PS_PW_MAX_LEN 63
 #define PS_OLD_PW_MAX_LEN 32
 #define PS_IP_ADDRESS_MAX_LENGTH 18
+#define PS_PORT_MAX_LENGTH 65535
 
 //
 // PS Utilities API

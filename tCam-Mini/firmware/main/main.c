@@ -95,7 +95,6 @@ void app_main(void)
     //  Core 0 : PRO - everything but lepton task
     //  Core 1 : APP - lepton task
     xTaskCreatePinnedToCore(&sif_cmd_task, "sif_cmd_task", 3072, NULL, 1, &task_handle_cmd, 0);
-    // xTaskCreatePinnedToCore(&net_cmd_task, "net_cmd_task",  3072, NULL, 1, &task_handle_cmd,  0);
     xTaskCreatePinnedToCore(&rsp_task, "rsp_task", 2816, NULL, 19, &task_handle_rsp, 0);
     xTaskCreatePinnedToCore(&lep_task, "lep_task", 2304, NULL, 19, &task_handle_lep, 1);
     xTaskCreatePinnedToCore(&aws_cmd_task, "aws_cmd_task", 2850, NULL, 2, &task_handle_aws, 0);

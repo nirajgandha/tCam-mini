@@ -292,7 +292,7 @@ bool ps_init(int brd, int iface)
 	}
 	else
 	{
-		ESP_LOGI(TAG, "Reading NVS lep info");
+		ESP_LOGI(TAG, "Reading NVS onboarding info with size: %u", required_size);
 		success &= ps_read_onboarding_detail_info();
 	}
 
@@ -720,6 +720,7 @@ static bool ps_read_old_net_info(int iface)
 
 static void ps_default_onboarding_detail_info()
 {
+	ESP_LOGE(TAG, "ps_default_onboarding_detail_info called");
 	ps_onboarding_details_t *local;
 
 	local = &ps_onboarding_details_info;
@@ -731,6 +732,7 @@ static void ps_default_onboarding_detail_info()
 
 static bool ps_read_onboarding_detail_info()
 {
+	ESP_LOGE(TAG, "ps_read_onboarding_detail_info called");
 	size_t required_size;
 	esp_err_t err;
 
@@ -752,6 +754,7 @@ static bool ps_read_onboarding_detail_info()
 
 static bool ps_write_onboarding_details_info()
 {
+	ESP_LOGE(TAG, "ps_write_onboarding_details_info called");
 	size_t required_size;
 	esp_err_t err;
 
